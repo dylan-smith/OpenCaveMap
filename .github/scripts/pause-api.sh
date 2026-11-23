@@ -9,6 +9,12 @@
 # Requires AZURE_RESOURCE_GROUP, AZURE_BACKEND_APP_NAME and AZURE_BACKEND_URL.
 set -euo pipefail
 
+# Without the URL the check below can't tell whether the pause took effect, so stop before changing anything.
+if [ -z "${AZURE_BACKEND_URL:-}" ]; then
+  echo "::error::AZURE_BACKEND_URL must be set to the API's public URL (a production environment variable)"
+  exit 1
+fi
+
 # An earlier run can leave the API paused after its migrations started (see "Report API left paused" in ci.yml).
 # The database may then be ahead of the running API, so this run must not resume it unless it deploys.
 echo "Checking whether the API is already paused"
