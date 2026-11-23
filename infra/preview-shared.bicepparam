@@ -8,7 +8,6 @@ param appServicePlanName = 'OpenCaveMap-Preview-Plan'
 param appServicePlanSku = 'F1'
 param sqlServerName = 'opencavemap-preview-sql'
 
-// The opencavemap-preview-deploy managed identity (see README, Identities & Permissions). Replace the placeholder
-// with the identity's object (principal) ID once it's created; previews can't deploy until then.
+// The opencavemap-preview-deploy managed identity (see README, Identities & Permissions)
 param sqlEntraAdminLogin = 'opencavemap-preview-deploy'
-param sqlEntraAdminObjectId = '00000000-0000-0000-0000-000000000000'
+param sqlEntraAdminObjectId = '8d29b323-a311-4428-be77-c6e580296737'
