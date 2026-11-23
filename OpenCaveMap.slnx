@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/OpenCaveMap.Api.Tests/OpenCaveMap.Api.Tests.csproj" />
+    <Project Path="backend/OpenCaveMap.Api/OpenCaveMap.Api.csproj" />
+    <Project Path="backend/OpenCaveMap.Database/OpenCaveMap.Database.csproj" />
+  </Folder>
+</Solution>

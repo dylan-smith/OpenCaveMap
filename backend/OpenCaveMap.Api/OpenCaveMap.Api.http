@@ -1,0 +1,32 @@
+@OpenCaveMap.Api_HostAddress = http://localhost:5269
+@contentType = application/json
+
+GET {{OpenCaveMap.Api_HostAddress}}/api/projects
+Accept: {{contentType}}
+
+###
+
+POST {{OpenCaveMap.Api_HostAddress}}/api/projects
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+
+{
+  "name": "Sample project"
+}
+
+###
+
+PUT {{OpenCaveMap.Api_HostAddress}}/api/projects/1
+Content-Type: {{contentType}}
+Accept: {{contentType}}
+
+{
+  "name": "Updated project"
+}
+
+###
+
+DELETE {{OpenCaveMap.Api_HostAddress}}/api/projects/1
+Accept: {{contentType}}
+
+###
