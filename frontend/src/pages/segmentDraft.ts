@@ -20,6 +20,9 @@ export type DraftShot = {
   savedDistance: number | null
   azimuth: string
   note: string
+  // Set when inserting or removing a station makes this shot join different stations, so its distance and azimuth
+  // need checking. It belongs to this editing session and is never saved.
+  review: boolean
 }
 
 export type Draft = {
@@ -50,6 +53,7 @@ export function newShot(): DraftShot {
     savedDistance: null,
     azimuth: '',
     note: '',
+    review: false,
   }
 }
 
@@ -106,8 +110,50 @@ export function toDraft(segment: Segment): Draft {
       savedDistance: shot.distance,
       azimuth: readingText(shot.azimuth),
       note: shot.note ?? '',
+      review: false,
     })),
   }
+}
+
+// Stations and shots are inserted and removed in pairs so the segment has no gap: a station with the shot arriving at
+// it, or for the first station, the shot leaving it. The one shot that then joins different stations is flagged.
+export function insertStationAfter(
+  draft: Draft,
+  index: number,
+  station: DraftStation,
+  shot: DraftShot,
+): Draft {
+  return {
+    ...draft,
+    stations: draft.stations.toSpliced(index + 1, 0, station),
+    // The shot that used to leave this station now leaves the new one.
+    shots: flagShot(draft.shots, index).toSpliced(index, 0, shot),
+  }
+}
+
+export function removeStationAt(draft: Draft, index: number): Draft {
+  const stations = draft.stations.toSpliced(index, 1)
+  if (index === 0) {
+    return { ...draft, stations, shots: draft.shots.toSpliced(0, 1) }
+  }
+  // The shot that left the removed station now leaves the one before it.
+  return {
+    ...draft,
+    stations,
+    shots: flagShot(draft.shots, index).toSpliced(index - 1, 1),
+  }
+}
+
+// Flags the shot at index for review, if there is one.
+function flagShot(shots: DraftShot[], index: number) {
+  return shots.map((shot, i) =>
+    i === index ? { ...shot, review: true } : shot,
+  )
+}
+
+// The shot removed along with the station at index.
+export function shotRemovedWith(draft: Draft, index: number) {
+  return draft.shots.at(index === 0 ? 0 : index - 1)
 }
 
 // A reading that isn't a number (see unreadableReadings) is written to JSON as null, like one that's missing.
@@ -142,8 +188,8 @@ export type Messages = {
 
 // The fields a message can be placed on.
 const segmentFields = ['surveyDate', 'name', 'note']
-const stationFields = ['depth', 'note']
-const shotFields = ['distance', 'azimuth', 'note']
+export const stationFields = ['depth', 'note']
+export const shotFields = ['distance', 'azimuth', 'note']
 
 export function rowField(rowKey: string, field: string) {
   return `${rowKey}.${field}`
@@ -205,6 +251,12 @@ export function unreadableReadings(draft: Draft): Messages | null {
 
 export function fieldsToFix(count: number) {
   return count === 1 ? '1 field needs fixing.' : `${count} fields need fixing.`
+}
+
+export function shotsToCheck(count: number) {
+  return count === 1
+    ? '1 shot needs checking.'
+    : `${count} shots need checking.`
 }
 
 // A label is the segment's number and the row's position, joined by a dot. Stations count from 0 and shots from 1.

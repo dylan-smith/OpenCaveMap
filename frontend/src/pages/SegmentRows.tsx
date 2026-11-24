@@ -1,5 +1,7 @@
+import { useId } from 'react'
 import type { KeyboardEvent, RefCallback } from 'react'
 import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { readingMaxLength } from './segmentDraft'
@@ -15,6 +17,9 @@ const shotIndent = 32
 export function StationRow({
   label,
   station,
+  canRemove,
+  onInsertAfter,
+  onRemove,
   message,
   onChange,
   inputRef,
@@ -23,6 +28,9 @@ export function StationRow({
 }: {
   label: string
   station: DraftStation
+  canRemove: boolean
+  onInsertAfter: () => void
+  onRemove: () => void
   message: (field: 'depth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftStation>) => void
   inputRef: (field: 'depth' | 'note') => RefCallback<HTMLInputElement>
@@ -92,15 +100,41 @@ export function StationRow({
           htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
         }}
       />
+      {/* Out of the Tab order, like the notes, so Tab keeps to the readings. Each name says which station it acts
+          on, since every station has a pair. */}
+      <Box sx={{ display: 'flex', mt: 0.5 }}>
+        <Button
+          size="small"
+          tabIndex={-1}
+          aria-label={`Insert station after ${label}`}
+          onClick={onInsertAfter}
+          sx={{ whiteSpace: 'nowrap' }}
+        >
+          Insert station
+        </Button>
+        <Button
+          size="small"
+          color="error"
+          tabIndex={-1}
+          aria-label={`Remove ${label}`}
+          disabled={!canRemove}
+          onClick={onRemove}
+        >
+          Remove
+        </Button>
+      </Box>
     </Box>
   )
 }
 
+// A flagged shot is marked with a warning border, and also in words, so it doesn't rely on colour. Its distance and
+// azimuth are described by the message, so a screen reader reads it on reaching either.
 export function ShotRow({
   label,
   shot,
   message,
   onChange,
+  onConfirm,
   inputRef,
   onReadingKeyDown,
   onNoteKeyDown,
@@ -109,6 +143,7 @@ export function ShotRow({
   shot: DraftShot
   message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
+  onConfirm: () => void
   inputRef: (
     field: 'distance' | 'azimuth' | 'note',
   ) => RefCallback<HTMLInputElement>
@@ -118,14 +153,28 @@ export function ShotRow({
   ) => void
   onNoteKeyDown: (event: KeyboardEvent) => void
 }) {
+  const id = useId()
+  const reviewId = `${id}-review`
+  // A flagged shot's line is wider, still centred under the stations' dots, with the fields where they were.
+  const lineWidth = shot.review ? 4 : 2
+
+  // MUI describes a field by its message, and this replaces that, so the message's id is included here.
+  function describedBy(field: 'distance' | 'azimuth') {
+    const ids = [
+      message(field) ? `${id}-${field}-helper-text` : null,
+      shot.review ? reviewId : null,
+    ].filter((value) => value !== null)
+    return ids.length > 0 ? ids.join(' ') : undefined
+  }
+
   return (
     <Box
       sx={{
-        ml: `${dotSize / 2 - 1}px`,
-        pl: `${shotIndent - dotSize / 2 - 1}px`,
+        ml: `${dotSize / 2 - lineWidth / 2}px`,
+        pl: `${shotIndent - dotSize / 2 - lineWidth / 2}px`,
         py: 1.5,
-        borderLeft: '2px solid',
-        borderColor: 'divider',
+        borderLeft: `${lineWidth}px solid`,
+        borderColor: shot.review ? 'warning.main' : 'divider',
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'flex-start',
@@ -144,6 +193,7 @@ export function ShotRow({
         {label}
       </Typography>
       <TextField
+        id={`${id}-distance`}
         size="small"
         label="Distance (m)"
         value={shot.distance}
@@ -156,12 +206,14 @@ export function ShotRow({
         slotProps={{
           htmlInput: {
             'aria-label': `${label} distance (m)`,
+            'aria-describedby': describedBy('distance'),
             inputMode: 'decimal',
             maxLength: readingMaxLength,
           },
         }}
       />
       <TextField
+        id={`${id}-azimuth`}
         size="small"
         label="Azimuth (°)"
         value={shot.azimuth}
@@ -174,6 +226,7 @@ export function ShotRow({
         slotProps={{
           htmlInput: {
             'aria-label': `${label} azimuth (°)`,
+            'aria-describedby': describedBy('azimuth'),
             inputMode: 'decimal',
             maxLength: readingMaxLength,
           },
@@ -194,6 +247,33 @@ export function ShotRow({
           htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
         }}
       />
+      {shot.review && (
+        <Box
+          sx={{
+            flexBasis: '100%',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            columnGap: 1,
+          }}
+        >
+          <Typography id={reviewId} variant="body2">
+            <Box component="span" aria-hidden sx={{ color: 'warning.main' }}>
+              ⚠{' '}
+            </Box>
+            <strong>Check this shot:</strong> it now joins different stations,
+            so its distance and azimuth need checking.
+          </Typography>
+          {/* In the Tab order after the azimuth, so the keyboard can confirm the shot as it passes. */}
+          <Button
+            size="small"
+            aria-label={`${label} distance and azimuth are right`}
+            onClick={onConfirm}
+          >
+            Distance and azimuth are right
+          </Button>
+        </Box>
+      )}
     </Box>
   )
 }

@@ -81,5 +81,5 @@ export function useReadingKeys(
     }
   }
 
-  return { inputRef, handleReadingKeyDown, handleNoteKeyDown }
+  return { inputRef, focusOnceShown, handleReadingKeyDown, handleNoteKeyDown }
 }

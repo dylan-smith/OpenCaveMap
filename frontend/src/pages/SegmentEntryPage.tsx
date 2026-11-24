@@ -25,11 +25,17 @@ import { parseId } from './parseId'
 import { useReadingKeys } from './readingKeys'
 import {
   fieldsToFix,
+  insertStationAfter,
   newShot,
   newStation,
   placeMessages,
+  removeStationAt,
   rowField,
+  shotFields,
   shotLabel,
+  shotRemovedWith,
+  shotsToCheck,
+  stationFields,
   stationLabel,
   toDraft,
   toRequest,
@@ -56,11 +62,11 @@ function SegmentEntry({
   const [saveError, setSaveError] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [messages, setMessages] = useState<Messages | null>(null)
+  // Set when a save is refused because shots are flagged. Its message shows until none are.
+  const [reviewRefused, setReviewRefused] = useState(false)
 
-  const { inputRef, handleReadingKeyDown, handleNoteKeyDown } = useReadingKeys(
-    draft,
-    addShotAndStation,
-  )
+  const { inputRef, focusOnceShown, handleReadingKeyDown, handleNoteKeyDown } =
+    useReadingKeys(draft, addShotAndStation)
 
   useEffect(() => {
     // Ignore a response that arrives after the user has left the page.
@@ -153,13 +159,16 @@ function SegmentEntry({
     clearMessages(Object.keys(changes).map((field) => rowField(key, field)))
   }
 
+  // Editing a flagged shot's distance or azimuth deals with the flag, as confirming it does.
   function updateShot(key: string, changes: Partial<DraftShot>) {
+    const reviewed =
+      'distance' in changes || 'azimuth' in changes ? { review: false } : {}
     setDraft(
       (previous) =>
         previous && {
           ...previous,
           shots: previous.shots.map((shot) =>
-            shot.key === key ? { ...shot, ...changes } : shot,
+            shot.key === key ? { ...shot, ...changes, ...reviewed } : shot,
           ),
         },
     )
@@ -185,9 +194,48 @@ function SegmentEntry({
     return shot
   }
 
+  // Moves to the new shot's distance, where the surveyor types next.
+  function insertAfter(stationKey: string) {
+    const station = newStation()
+    const shot = newShot()
+    setDraft((previous) => {
+      if (previous === null) {
+        return previous
+      }
+      const index = previous.stations.findIndex((row) => row.key === stationKey)
+      return insertStationAfter(previous, index, station, shot)
+    })
+    setReviewRefused(false)
+    focusOnceShown(rowField(shot.key, 'distance'))
+  }
+
+  // The removed rows' messages go with them. The control that had focus goes too, so focus moves to the depth of
+  // the station before the removed one, or of the new first station.
+  function removeStation(stationKey: string) {
+    if (draft === null || draft.stations.length <= 2) {
+      return
+    }
+    const index = draft.stations.findIndex((row) => row.key === stationKey)
+    const shot = shotRemovedWith(draft, index)
+    setDraft((previous) => previous && removeStationAt(previous, index))
+    clearMessages([
+      ...stationFields.map((field) => rowField(stationKey, field)),
+      ...(shot ? shotFields.map((field) => rowField(shot.key, field)) : []),
+    ])
+    setReviewRefused(false)
+    const focusStation = draft.stations[index === 0 ? 1 : index - 1]
+    focusOnceShown(rowField(focusStation.key, 'depth'))
+  }
+
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     if (draft === null) {
+      return
+    }
+
+    // Whether a flagged shot is right is known only to this editing session, so the screen checks this, not the API.
+    if (draft.shots.some((shot) => shot.review)) {
+      setReviewRefused(true)
       return
     }
 
@@ -242,6 +290,7 @@ function SegmentEntry({
   }
 
   const busy = saving || deleting
+  const flagged = draft?.shots.filter((shot) => shot.review).length ?? 0
 
   return (
     <Stack spacing={2}>
@@ -317,6 +366,9 @@ function SegmentEntry({
                       <StationRow
                         label={stationLabel(draft, index)}
                         station={station}
+                        canRemove={draft.stations.length > 2}
+                        onInsertAfter={() => insertAfter(station.key)}
+                        onRemove={() => removeStation(station.key)}
                         message={(field) =>
                           message(rowField(station.key, field))
                         }
@@ -344,6 +396,9 @@ function SegmentEntry({
                             message(rowField(shot.key, field))
                           }
                           onChange={(changes) => updateShot(shot.key, changes)}
+                          onConfirm={() =>
+                            updateShot(shot.key, { review: false })
+                          }
                           inputRef={(field) =>
                             inputRef(rowField(shot.key, field))
                           }
@@ -380,6 +435,12 @@ function SegmentEntry({
                       ))}
                     </Box>
                   )}
+                </Alert>
+              )}
+              {reviewRefused && flagged > 0 && (
+                <Alert severity="error">
+                  This segment can&apos;t be saved until its flagged shots are
+                  checked. {shotsToCheck(flagged)}
                 </Alert>
               )}
               {saveError && <Alert severity="error">{saveError}</Alert>}
