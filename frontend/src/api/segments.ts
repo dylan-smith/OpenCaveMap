@@ -136,6 +136,16 @@ export function replaceSegment(
   return saveSegment(`${segmentsUrl(projectId)}/${segmentId}`, 'PUT', segment)
 }
 
+// A 404 means the segment is already gone, which is what the caller wanted.
+export async function deleteSegment(projectId: number, segmentId: number) {
+  const response = await apiFetch(`${segmentsUrl(projectId)}/${segmentId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok && response.status !== 404) {
+    throw new Error('Unable to delete segment.')
+  }
+}
+
 // A 400 means the API rejected something the user typed, so it's thrown with the API's messages for the screen to
 // place.
 async function saveSegment(

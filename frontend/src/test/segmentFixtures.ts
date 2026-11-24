@@ -66,21 +66,27 @@ export function savedSegment() {
   }
 }
 
-// A fake segments API for project 7. A POST or PUT gets the handler's response, or a saved segment by default.
+// A fake segments API for project 7. A POST, PUT or DELETE gets the handler's response, by default a saved segment
+// or, for a DELETE, no content.
 export function mockApi({
   segments = savedSegments,
   blank = blankSegment(),
   saved = savedSegment(),
   onCreate = () => Promise.resolve(jsonResponse({}, 201)),
   onReplace = () => Promise.resolve(jsonResponse(savedSegment())),
+  onDelete = () => Promise.resolve(new Response(null, { status: 204 })),
 }: {
   segments?: unknown[]
   blank?: unknown
   saved?: unknown
   onCreate?: (body: unknown) => Promise<Response>
   onReplace?: (body: unknown, url: string) => Promise<Response>
+  onDelete?: (url: string) => Promise<Response>
 } = {}) {
   return mockFetch((url, init) => {
+    if (init?.method === 'DELETE') {
+      return onDelete(url)
+    }
     // The API client always sends JSON text.
     if (init?.method === 'POST') {
       return onCreate(JSON.parse(init.body as string))

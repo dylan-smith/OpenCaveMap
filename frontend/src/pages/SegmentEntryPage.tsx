@@ -12,6 +12,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { describeFetchError } from '../api/projects'
 import {
   createSegment,
+  deleteSegment,
   getSegment,
   getNewSegment,
   replaceSegment,
@@ -50,8 +51,10 @@ function SegmentEntry({
   const [notFound, setNotFound] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [deleteError, setDeleteError] = useState('')
   const [messages, setMessages] = useState<Messages | null>(null)
 
   const { inputRef, handleReadingKeyDown, handleNoteKeyDown } = useReadingKeys(
@@ -222,6 +225,24 @@ function SegmentEntry({
     }
   }
 
+  // Acts straight away, like deleting a project. Only a saved segment can be deleted.
+  async function handleDelete(id: number) {
+    setDeleting(true)
+    setDeleteError('')
+
+    try {
+      await deleteSegment(projectId, id)
+      trackEvent('SegmentDeleted')
+      void navigate(`/projects/${projectId}`)
+    } catch (error) {
+      trackException(error, { operation: 'deleteSegment' })
+      setDeleteError(describeFetchError(error, 'Unable to delete segment.'))
+      setDeleting(false)
+    }
+  }
+
+  const busy = saving || deleting
+
   return (
     <Stack spacing={2}>
       <Box>
@@ -362,11 +383,24 @@ function SegmentEntry({
                 </Alert>
               )}
               {saveError && <Alert severity="error">{saveError}</Alert>}
-              <Box>
-                <Button type="submit" variant="contained" disabled={saving}>
+              {deleteError && <Alert severity="error">{deleteError}</Alert>}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <Button type="submit" variant="contained" disabled={busy}>
                   {saving ? 'Saving…' : 'Save segment'}
                 </Button>
-              </Box>
+                {/* type="button", so Enter in a field never deletes. */}
+                {segmentId !== null && (
+                  <Button
+                    type="button"
+                    color="error"
+                    variant="outlined"
+                    disabled={busy}
+                    onClick={() => void handleDelete(segmentId)}
+                  >
+                    {deleting ? 'Deleting…' : 'Delete segment'}
+                  </Button>
+                )}
+              </Stack>
             </Box>
           </Paper>
         )

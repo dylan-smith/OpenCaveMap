@@ -239,6 +239,16 @@ describe('segment entry screen', () => {
     expect(trackException).toHaveBeenCalledTimes(1)
   })
 
+  it('has no delete action for a segment that is not saved yet', async () => {
+    mockApi()
+
+    await openNewSegment()
+
+    expect(
+      screen.queryByRole('button', { name: /Delete/ }),
+    ).not.toBeInTheDocument()
+  })
+
   it('goes back to the project page without saving', async () => {
     const user = userEvent.setup()
     mockApi()
