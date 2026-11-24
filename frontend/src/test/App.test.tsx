@@ -1,10 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
+import { useBlocker } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import App from '../App'
 import { setSession } from '../auth/session'
 import { trackEvent, trackException, trackPageView } from '../telemetry'
+import { renderAt } from './renderAt'
 
 vi.mock('../telemetry', () => ({
   trackEvent: vi.fn(),
@@ -36,14 +36,6 @@ function jsonResponse(body: unknown, status = 200): Response {
 // fetch rejects like this when the API can't be reached at all.
 function unreachable(): Promise<Response> {
   throw new TypeError('Failed to fetch')
-}
-
-function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
-  )
 }
 
 async function waitForLoaded() {
@@ -110,6 +102,55 @@ describe('App', () => {
         screen.getByRole('heading', { name: 'Page not found' }),
       ).toBeInTheDocument()
       expect(fetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('navigation', () => {
+    it('lets a page block leaving it', async () => {
+      const user = userEvent.setup()
+      mockFetch(async () => jsonResponse([]))
+      function UnsavedPage() {
+        const blocker = useBlocker(true)
+        return <p>Blocker {blocker.state}</p>
+      }
+
+      renderAt('/unsaved', [{ path: 'unsaved', element: <UnsavedPage /> }])
+      await user.click(screen.getByRole('link', { name: 'OpenCaveMap' }))
+
+      expect(screen.getByText('Blocker blocked')).toBeInTheDocument()
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it('tracks a page view for each navigation', async () => {
+      const user = userEvent.setup()
+      mockFetch(async (url) =>
+        /\/api\/projects$/.test(url)
+          ? jsonResponse([])
+          : jsonResponse({ id: 7, name: 'Crystal Cave' }),
+      )
+
+      renderAt('/projects/7')
+      await user.click(
+        await screen.findByRole('link', { name: '← Back to projects' }),
+      )
+      await waitForLoaded()
+
+      expect(trackPageView).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows the error fallback when the app throws', () => {
+      // React and the router log caught render errors; keep the test output clean.
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockFetch(async () => jsonResponse([]))
+      vi.mocked(trackPageView).mockImplementationOnce(() => {
+        throw new Error('boom')
+      })
+
+      renderAt('/')
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Something went wrong. Reload the page to try again.',
+      )
     })
   })
 
