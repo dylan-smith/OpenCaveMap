@@ -536,6 +536,18 @@ jobs:
           CONNECTION_STRING: Server=tcp:${{ steps.infra.outputs['sql-server-fqdn'] }},1433;Initial Catalog=${{ env.PREVIEW_DB_NAME }};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=120;
           APP_CLIENT_ID: ${{ steps.infra.outputs['api-client-id'] }}
 
+      # [DEBUG-fw25] Temporary, to be removed before merging: does SqlPackage, which production's backup uses, sign in
+      # from a runner outside Azure? deploy-backend only runs on main, so this is the only place to find out first.
+      - name: "[DEBUG-fw25] Export the database with SqlPackage"
+        if: steps.current.outputs.current == 'true'
+        continue-on-error: true
+        run: |
+          dotnet tool install --global microsoft.sqlpackage
+          sqlpackage /Action:Export /SourceConnectionString:"$CONNECTION_STRING" /TargetFile:"$RUNNER_TEMP/debug-fw25.bacpac"
+          ls -l "$RUNNER_TEMP/debug-fw25.bacpac"
+        env:
+          CONNECTION_STRING: Server=tcp:${{ steps.infra.outputs['sql-server-fqdn'] }},1433;Initial Catalog=${{ env.PREVIEW_DB_NAME }};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=120;
+
       # Nothing after this connects to the database from the runner. Failing to remove the rule only leaves one
       # address let in, which the script reports, so it doesn't stop the deployment.
       - name: Shut this runner out of the SQL firewall
