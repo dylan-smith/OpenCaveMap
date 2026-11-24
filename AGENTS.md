@@ -112,3 +112,17 @@ npm run test:e2e
 - Keep PRs small and focused, and follow `.github/PULL_REQUEST_TEMPLATE.md`.
 - Make sure the backend and frontend checks pass for the areas you touched.
 - When a change affects the UI, take screenshots and attach them to the PR description.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues for `dylan-smith/OpenCaveMap`, using the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created when they're first needed. See `docs/agents/domain.md`.
