@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { SubmitEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent, RefCallback, SubmitEvent } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -167,6 +167,21 @@ function shotLabel(draft: Draft, index: number) {
   return `Shot ${draft.number}.${index + 1}`
 }
 
+// The readings in the order they're written on a slate: each station's depth, then the distance and azimuth of the
+// shot leaving it. Enter moves along this order. Tab follows it too, because the notes are out of the Tab order.
+function readingOrder(draft: Draft) {
+  return draft.stations.flatMap((station, index) => {
+    const shot = draft.shots.at(index)
+    return shot
+      ? [
+          rowField(station.key, 'depth'),
+          rowField(shot.key, 'distance'),
+          rowField(shot.key, 'azimuth'),
+        ]
+      : [rowField(station.key, 'depth')]
+  })
+}
+
 // Station and shot labels share a width so their fields line up. A shot row is indented beside the line joining
 // its two stations, which starts under the centre of each station's dot.
 const dotSize = 16
@@ -182,6 +197,17 @@ function SegmentEntry({ projectId }: { projectId: number }) {
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [messages, setMessages] = useState<Messages | null>(null)
+  // The inputs of the rows' fields, keyed like their messages, so the keyboard can move between them.
+  const inputs = useRef(new Map<string, HTMLInputElement>())
+  // A field to move to once the render that adds it has happened.
+  const pendingFocus = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (pendingFocus.current !== null) {
+      inputs.current.get(pendingFocus.current)?.focus()
+      pendingFocus.current = null
+    }
+  })
 
   useEffect(() => {
     // Ignore a response that arrives after the user has left the page.
@@ -280,15 +306,73 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     return messages?.fields[field]
   }
 
+  // Returns the new shot, so the keyboard can move to it once it's on the screen.
   function addShotAndStation() {
+    const station = newStation()
+    const shot = newShot()
     setDraft(
       (previous) =>
         previous && {
           ...previous,
-          stations: [...previous.stations, newStation()],
-          shots: [...previous.shots, newShot()],
+          stations: [...previous.stations, station],
+          shots: [...previous.shots, shot],
         },
     )
+    return shot
+  }
+
+  function inputRef(field: string): RefCallback<HTMLInputElement> {
+    return (input) => {
+      if (input === null) {
+        inputs.current.delete(field)
+      } else {
+        inputs.current.set(field, input)
+      }
+    }
+  }
+
+  // Moves to the reading after field and selects it, so typing replaces what's there. After the last station's
+  // depth, that adds a shot and station and moves to the new shot's distance.
+  function moveAfter(field: string) {
+    if (draft === null) {
+      return
+    }
+    const order = readingOrder(draft)
+    const next = order.at(order.indexOf(field) + 1)
+    if (next === undefined) {
+      pendingFocus.current = rowField(addShotAndStation().key, 'distance')
+    } else {
+      const input = inputs.current.get(next)
+      input?.focus()
+      input?.select()
+    }
+  }
+
+  // Enter in a reading moves to the next one rather than saving the segment. Alt+N moves to the row's note, with
+  // the cursor after what's already there. It's matched by the key's position, since on a Mac Alt+N types a
+  // character other than n.
+  function handleReadingKeyDown(
+    rowKey: string,
+    field: string,
+    event: KeyboardEvent,
+  ) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      moveAfter(rowField(rowKey, field))
+    } else if (event.altKey && event.code === 'KeyN') {
+      event.preventDefault()
+      const note = inputs.current.get(rowField(rowKey, 'note'))
+      note?.focus()
+      note?.setSelectionRange(note.value.length, note.value.length)
+    }
+  }
+
+  // Enter in a note goes back to the readings, at the one after the note's row.
+  function handleNoteKeyDown(lastReading: string, event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      moveAfter(lastReading)
+    }
   }
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
@@ -394,6 +478,18 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                         onChange={(changes) =>
                           updateStation(station.key, changes)
                         }
+                        inputRef={(field) =>
+                          inputRef(rowField(station.key, field))
+                        }
+                        onReadingKeyDown={(field, event) =>
+                          handleReadingKeyDown(station.key, field, event)
+                        }
+                        onNoteKeyDown={(event) =>
+                          handleNoteKeyDown(
+                            rowField(station.key, 'depth'),
+                            event,
+                          )
+                        }
                       />
                       {shot && (
                         <ShotRow
@@ -403,6 +499,18 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                             message(rowField(shot.key, field))
                           }
                           onChange={(changes) => updateShot(shot.key, changes)}
+                          inputRef={(field) =>
+                            inputRef(rowField(shot.key, field))
+                          }
+                          onReadingKeyDown={(field, event) =>
+                            handleReadingKeyDown(shot.key, field, event)
+                          }
+                          onNoteKeyDown={(event) =>
+                            handleNoteKeyDown(
+                              rowField(shot.key, 'azimuth'),
+                              event,
+                            )
+                          }
                         />
                       )}
                     </Box>
@@ -449,11 +557,17 @@ function StationRow({
   station,
   message,
   onChange,
+  inputRef,
+  onReadingKeyDown,
+  onNoteKeyDown,
 }: {
   label: string
   station: DraftStation
   message: (field: 'depth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftStation>) => void
+  inputRef: (field: 'depth' | 'note') => RefCallback<HTMLInputElement>
+  onReadingKeyDown: (field: 'depth', event: KeyboardEvent) => void
+  onNoteKeyDown: (event: KeyboardEvent) => void
 }) {
   return (
     <Box
@@ -489,6 +603,8 @@ function StationRow({
         size="small"
         label="Depth (m)"
         value={station.depth}
+        inputRef={inputRef('depth')}
+        onKeyDown={(event) => onReadingKeyDown('depth', event)}
         onChange={(event) => onChange({ depth: event.target.value })}
         error={Boolean(message('depth'))}
         helperText={message('depth')}
@@ -504,11 +620,16 @@ function StationRow({
         size="small"
         label="Note"
         value={station.note}
+        inputRef={inputRef('note')}
+        onKeyDown={onNoteKeyDown}
         onChange={(event) => onChange({ note: event.target.value })}
         error={Boolean(message('note'))}
         helperText={message('note')}
         sx={{ flex: 1, minWidth: 160 }}
-        slotProps={{ htmlInput: { 'aria-label': `${label} note` } }}
+        slotProps={{
+          // Notes are occasional, so Tab skips them. Alt+N in a reading reaches one.
+          htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
+        }}
       />
     </Box>
   )
@@ -519,11 +640,22 @@ function ShotRow({
   shot,
   message,
   onChange,
+  inputRef,
+  onReadingKeyDown,
+  onNoteKeyDown,
 }: {
   label: string
   shot: DraftShot
   message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
+  inputRef: (
+    field: 'distance' | 'azimuth' | 'note',
+  ) => RefCallback<HTMLInputElement>
+  onReadingKeyDown: (
+    field: 'distance' | 'azimuth',
+    event: KeyboardEvent,
+  ) => void
+  onNoteKeyDown: (event: KeyboardEvent) => void
 }) {
   return (
     <Box
@@ -554,6 +686,8 @@ function ShotRow({
         size="small"
         label="Distance (m)"
         value={shot.distance}
+        inputRef={inputRef('distance')}
+        onKeyDown={(event) => onReadingKeyDown('distance', event)}
         onChange={(event) => onChange({ distance: event.target.value })}
         error={Boolean(message('distance'))}
         helperText={message('distance')}
@@ -569,6 +703,8 @@ function ShotRow({
         size="small"
         label="Azimuth (°)"
         value={shot.azimuth}
+        inputRef={inputRef('azimuth')}
+        onKeyDown={(event) => onReadingKeyDown('azimuth', event)}
         onChange={(event) => onChange({ azimuth: event.target.value })}
         error={Boolean(message('azimuth'))}
         helperText={message('azimuth')}
@@ -584,11 +720,16 @@ function ShotRow({
         size="small"
         label="Note"
         value={shot.note}
+        inputRef={inputRef('note')}
+        onKeyDown={onNoteKeyDown}
         onChange={(event) => onChange({ note: event.target.value })}
         error={Boolean(message('note'))}
         helperText={message('note')}
         sx={{ flex: 1, minWidth: 160 }}
-        slotProps={{ htmlInput: { 'aria-label': `${label} note` } }}
+        slotProps={{
+          // Notes are occasional, so Tab skips them. Alt+N in a reading reaches one.
+          htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
+        }}
       />
     </Box>
   )

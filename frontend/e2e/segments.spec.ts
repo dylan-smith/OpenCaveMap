@@ -106,4 +106,41 @@ test.describe('Segments', () => {
       page.getByRole('list', { name: 'Segments' }).getByRole('listitem'),
     ).toContainText('Segment 1')
   })
+
+  test('types a whole slate from the keyboard and saves it', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}/segments/new`)
+    await page.getByLabel('Survey date').fill('2026-11-21')
+
+    await page.getByLabel('Station 1.0 depth (m)').focus()
+    for (const reading of ['3', '10', '045', '5']) {
+      await page.keyboard.type(reading)
+      await page.keyboard.press('Enter')
+    }
+    await expect(page.getByLabel('Shot 1.2 distance (m)')).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Alt+n')
+    await page.keyboard.type('Jump left')
+    await page.keyboard.press('Enter')
+    await expect(page.getByLabel('Shot 1.2 distance (m)')).toBeFocused()
+    await page.keyboard.type('12.5')
+    await page.keyboard.press('Tab')
+    await page.keyboard.type('90')
+    await page.keyboard.press('Tab')
+    await page.keyboard.type('6')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    await expect(
+      page.getByRole('button', { name: 'Save segment' }),
+    ).toBeFocused()
+    await page.keyboard.press('Enter')
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+    const segment = page
+      .getByRole('list', { name: 'Segments' })
+      .getByRole('listitem')
+    await expect(segment).toHaveCount(1)
+    await expect(segment).toContainText('2026-11-21 · 3 stations · 22.5 m')
+  })
 })
