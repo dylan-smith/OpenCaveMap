@@ -4,14 +4,11 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import Typography from '@mui/material/Typography'
-import { Link, Route, Routes, useLocation } from 'react-router'
+import { Link, Outlet, useLocation } from 'react-router'
 import logo from './assets/logo.svg'
 import { disableGoogleAutoSelect } from './auth/google'
 import { setSession, useSession } from './auth/session'
 import SignInPage from './auth/SignInPage'
-import ProjectDetailPage from './pages/ProjectDetailPage'
-import ProjectsPage from './pages/ProjectsPage'
-import NotFoundPage from './pages/NotFoundPage'
 import { trackPageView } from './telemetry'
 
 function signOut() {
@@ -78,15 +75,7 @@ function App() {
         Survey, map and share caves.
       </Typography>
 
-      {session === null ? (
-        <SignInPage />
-      ) : (
-        <Routes>
-          <Route path="/" element={<ProjectsPage />} />
-          <Route path="/projects/:id" element={<ProjectDetailPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      )}
+      {session === null ? <SignInPage /> : <Outlet />}
     </Container>
   )
 }
