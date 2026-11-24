@@ -139,6 +139,7 @@ describe('segment entry screen', () => {
       surveyDate: '2026-11-21',
       name: ' Main line ',
       note: 'Clear water',
+      unitSystem: 'metric',
       stations: [
         { id: null, depth: 3, note: 'Line arrow' },
         { id: null, depth: 7, note: '' },
@@ -174,6 +175,7 @@ describe('segment entry screen', () => {
       surveyDate: null,
       name: '',
       note: '',
+      unitSystem: 'metric',
       stations: [
         { id: null, depth: -2, note: '' },
         { id: null, depth: null, note: '' },

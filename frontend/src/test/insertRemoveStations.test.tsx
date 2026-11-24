@@ -350,6 +350,7 @@ describe('inserting and removing stations', () => {
       surveyDate: '2026-11-21',
       name: 'Side passage',
       note: 'Silty',
+      unitSystem: 'metric',
       stations: [
         { id: 102, depth: 12.345, note: '' },
         { id: null, depth: 10, note: '' },

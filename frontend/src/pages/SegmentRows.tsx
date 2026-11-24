@@ -13,9 +13,11 @@ const dotSize = 16
 const labelWidth = 120
 const shotIndent = 32
 
-// Every field's accessible name includes the row's label, so a screen reader says which reading it's on.
+// Every field's accessible name includes the row's label, so a screen reader says which reading it's on, and the
+// unit, m or ft, the depth is in.
 export function StationRow({
   label,
+  unit,
   station,
   canRemove,
   onInsertAfter,
@@ -27,6 +29,7 @@ export function StationRow({
   onNoteKeyDown,
 }: {
   label: string
+  unit: string
   station: DraftStation
   canRemove: boolean
   onInsertAfter: () => void
@@ -69,7 +72,7 @@ export function StationRow({
       </Typography>
       <TextField
         size="small"
-        label="Depth (m)"
+        label={`Depth (${unit})`}
         value={station.depth}
         inputRef={inputRef('depth')}
         onKeyDown={(event) => onReadingKeyDown('depth', event)}
@@ -79,7 +82,7 @@ export function StationRow({
         sx={{ width: 130 }}
         slotProps={{
           htmlInput: {
-            'aria-label': `${label} depth (m)`,
+            'aria-label': `${label} depth (${unit})`,
             inputMode: 'decimal',
             maxLength: readingMaxLength,
           },
@@ -131,6 +134,7 @@ export function StationRow({
 // azimuth are described by the message, so a screen reader reads it on reaching either.
 export function ShotRow({
   label,
+  unit,
   shot,
   message,
   onChange,
@@ -140,6 +144,7 @@ export function ShotRow({
   onNoteKeyDown,
 }: {
   label: string
+  unit: string
   shot: DraftShot
   message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
@@ -195,7 +200,7 @@ export function ShotRow({
       <TextField
         id={`${id}-distance`}
         size="small"
-        label="Distance (m)"
+        label={`Distance (${unit})`}
         value={shot.distance}
         inputRef={inputRef('distance')}
         onKeyDown={(event) => onReadingKeyDown('distance', event)}
@@ -205,7 +210,7 @@ export function ShotRow({
         sx={{ width: 130 }}
         slotProps={{
           htmlInput: {
-            'aria-label': `${label} distance (m)`,
+            'aria-label': `${label} distance (${unit})`,
             'aria-describedby': describedBy('distance'),
             inputMode: 'decimal',
             maxLength: readingMaxLength,

@@ -175,7 +175,9 @@ function ProjectDetail({ id }: { id: number }) {
         )
       )}
 
-      {project && <ProjectSegments projectId={id} />}
+      {project && (
+        <ProjectSegments project={project} onProjectChange={setProject} />
+      )}
     </Stack>
   )
 }

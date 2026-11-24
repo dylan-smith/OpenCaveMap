@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react'
 import { jsonResponse, mockFetch } from './mockFetch'
 import { renderAt } from './renderAt'
 
-export const project = { id: 7, name: 'Crystal Cave' }
+export const project = { id: 7, name: 'Crystal Cave', unitSystem: 'metric' }
 
 export const savedSegments = [
   {
@@ -13,6 +13,7 @@ export const savedSegments = [
     stationCount: 4,
     // Unrounded, as the API sends it.
     totalLength: 15.504,
+    unitSystem: 'metric',
   },
   {
     id: 10,
@@ -21,17 +22,23 @@ export const savedSegments = [
     surveyDate: '2026-03-02',
     stationCount: 2,
     totalLength: 30,
+    unitSystem: 'metric',
   },
 ]
 
-// What the API returns for the blank new segment: its number, the default survey date, two stations and a shot.
-export function blankSegment(surveyDate: string | null = '2026-11-21') {
+// What the API returns for the blank new segment: its number, the default survey date, the project's unit system,
+// two stations and a shot.
+export function blankSegment(
+  surveyDate: string | null = '2026-11-21',
+  unitSystem = 'metric',
+) {
   return {
     id: null,
     number: 4,
     surveyDate,
     name: null,
     note: null,
+    unitSystem,
     stations: [
       { id: null, depth: null, note: null },
       { id: null, depth: null, note: null },
@@ -42,13 +49,14 @@ export function blankSegment(surveyDate: string | null = '2026-11-21') {
 
 // What the API returns for saved segment 12, number 3 in the list: three stations and two shots. Two readings have
 // more decimals than are shown.
-export function savedSegment() {
+export function savedSegment(unitSystem = 'metric') {
   return {
     id: 12,
     number: 3,
     surveyDate: '2026-11-21',
     name: 'Side passage',
     note: 'Silty',
+    unitSystem,
     stations: [
       { id: 101, depth: 3, note: 'Line arrow' },
       { id: 102, depth: 12.345, note: null },
@@ -67,7 +75,7 @@ export function savedSegment() {
 }
 
 // A fake segments API for project 7. A POST, PUT or DELETE gets the handler's response, by default a saved segment
-// or, for a DELETE, no content.
+// or, for a DELETE, no content. A PUT to the project itself goes to onUpdateProject.
 export function mockApi({
   segments = savedSegments,
   blank = blankSegment(),
@@ -75,6 +83,7 @@ export function mockApi({
   onCreate = () => Promise.resolve(jsonResponse({}, 201)),
   onReplace = () => Promise.resolve(jsonResponse(savedSegment())),
   onDelete = () => Promise.resolve(new Response(null, { status: 204 })),
+  onUpdateProject = (body) => Promise.resolve(jsonResponse({ id: 7, ...body })),
 }: {
   segments?: unknown[]
   blank?: unknown
@@ -82,6 +91,7 @@ export function mockApi({
   onCreate?: (body: unknown) => Promise<Response>
   onReplace?: (body: unknown, url: string) => Promise<Response>
   onDelete?: (url: string) => Promise<Response>
+  onUpdateProject?: (body: Record<string, unknown>) => Promise<Response>
 } = {}) {
   return mockFetch((url, init) => {
     if (init?.method === 'DELETE') {
@@ -90,6 +100,11 @@ export function mockApi({
     // The API client always sends JSON text.
     if (init?.method === 'POST') {
       return onCreate(JSON.parse(init.body as string))
+    }
+    if (init?.method === 'PUT' && url.endsWith('/api/projects/7')) {
+      return onUpdateProject(
+        JSON.parse(init.body as string) as Record<string, unknown>,
+      )
     }
     if (init?.method === 'PUT') {
       return onReplace(JSON.parse(init.body as string), url)
