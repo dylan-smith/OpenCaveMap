@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/dylan-smith/OpenCaveMap/actions/workflows/ci.yml/badge.svg)](https://github.com/dylan-smith/OpenCaveMap/actions/workflows/ci.yml)
 
-A cave mapping app. So far it is a skeleton that keeps each user's list of projects, built with:
+A cave mapping app. So far it keeps each user's projects and the survey segments entered in them, built with:
 - **Backend:** ASP.NET Core Web API (.NET 10) + Entity Framework Core + SQL Server
 - **Frontend:** React 19 + TypeScript (Vite + Material UI)
 

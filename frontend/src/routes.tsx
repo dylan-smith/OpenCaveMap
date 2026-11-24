@@ -3,6 +3,7 @@ import App from './App'
 import { ErrorFallback } from './ErrorBoundary'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ProjectsPage from './pages/ProjectsPage'
+import SegmentEntryPage from './pages/SegmentEntryPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 // The app's pages, rendered inside App's layout. Used by the browser router in main.tsx and the tests' memory router.
@@ -16,6 +17,7 @@ export const routes = [
     children: [
       { index: true, element: <ProjectsPage /> },
       { path: 'projects/:id', element: <ProjectDetailPage /> },
+      { path: 'projects/:id/segments/new', element: <SegmentEntryPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
