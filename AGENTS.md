@@ -16,9 +16,9 @@ OpenCaveMap is a cave mapping app. So far it only keeps each user's list of proj
 - `infra`: Bicep templates for Azure (App Service, Azure SQL, Storage static website,
   monitoring). `preview.bicep` is a pull request's preview environment, and `preview-shared.bicep`
   the plan and SQL server every preview shares (deployed from the PR's base branch).
-- `.github/workflows/ci.yml`: build, test, CodeQL, E2E, PR what-if preview, deploy each PR to a
-  preview environment, and deploy to production on `main`. `preview-cleanup.yml` deletes a PR's
-  preview when it closes.
+- `.github/workflows/ci.yml`: build, test, CodeQL, E2E, PR what-if preview, deploy each PR based on
+  `main` to a preview environment, and deploy to production on `main`. `preview-cleanup.yml` deletes a
+  PR's preview when it closes.
 
 ## Validation commands
 

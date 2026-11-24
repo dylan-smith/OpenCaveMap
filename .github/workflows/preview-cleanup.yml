@@ -20,7 +20,8 @@ jobs:
   delete:
     name: Delete PR Preview
     runs-on: ubuntu-latest
-    # The same PRs deploy-preview deploys: from this repository and not opened by Dependabot (whoever closes it).
+    # The PRs deploy-preview can deploy: from this repository and not opened by Dependabot (whoever closes it). One
+    # that was never based on main has no preview, and the script does nothing for it.
     if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
     # The same group as deploy-preview, so closing the PR cancels a deployment still running for it.
     concurrency:
