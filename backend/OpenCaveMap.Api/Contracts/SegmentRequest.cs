@@ -1,3 +1,5 @@
+using OpenCaveMap.Api.Models;
+
 namespace OpenCaveMap.Api.Contracts;
 
 /// <summary>
@@ -11,6 +13,12 @@ public class SegmentRequest
     public string? Name { get; set; }
 
     public string? Note { get; set; }
+
+    /// <summary>
+    /// The unit system the depths and distances are in. It's used to convert them even when the project's own setting
+    /// has changed since. Optional for now: without one, they're read as metres.
+    /// </summary>
+    public UnitSystem? UnitSystem { get; set; }
 
     /// <summary>
     /// In order along the segment.
@@ -28,7 +36,7 @@ public class StationRequest
     public int? Id { get; set; }
 
     /// <summary>
-    /// In metres.
+    /// In the request's unit system.
     /// </summary>
     public decimal? Depth { get; set; }
 
@@ -40,7 +48,7 @@ public class ShotRequest
     public int? Id { get; set; }
 
     /// <summary>
-    /// In metres.
+    /// In the request's unit system.
     /// </summary>
     public decimal? Distance { get; set; }
 
