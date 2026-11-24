@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using OpenCaveMap.Api.Contracts;
+using OpenCaveMap.Api.Models;
 
 namespace OpenCaveMap.Api.Segments;
 
@@ -16,13 +17,19 @@ public sealed record ValidSegment(
     IReadOnlyList<ValidStation> Stations,
     IReadOnlyList<ValidShot> Shots);
 
-public sealed record ValidStation(int? Id, decimal Depth, string? Note);
+public sealed record ValidStation(int? Id, LengthReading Depth, string? Note);
 
-public sealed record ValidShot(int? Id, decimal Distance, decimal Azimuth, string? Note);
+public sealed record ValidShot(int? Id, LengthReading Distance, decimal Azimuth, string? Note);
+
+/// <summary>
+/// A depth or distance: the text the user typed, trimmed, and its value in metres.
+/// </summary>
+public sealed record LengthReading(string Text, decimal Metres);
 
 /// <summary>
 /// Parses and validates a segment as the user typed it. Each message is keyed by the camelCase path of the field it
-/// belongs to (surveyDate, stations[1].depth, shots[0].azimuth), so the entry screen can put it beside that field.
+/// belongs to (surveyDate, stations[1].depth, shots[0].azimuth, stations[2].id), so the entry screen can put it beside
+/// that field.
 /// </summary>
 public static partial class SegmentInput
 {
@@ -40,7 +47,11 @@ public static partial class SegmentInput
     /// <summary>
     /// Returns the segment, or null after adding a message to <paramref name="errors"/> for every problem found.
     /// </summary>
-    public static ValidSegment? Read(SegmentRequest request, ModelStateDictionary errors)
+    /// <param name="replacing">
+    /// The saved segment the request replaces, whose stations and shots the request's identities must belong to.
+    /// Null for a new segment, whose identities are ignored.
+    /// </param>
+    public static ValidSegment? Read(SegmentRequest request, ModelStateDictionary errors, Segment? replacing = null)
     {
         var surveyDate = ReadSurveyDate(request.SurveyDate, errors);
         var name = ReadText(request.Name, "name", "Name", NameMaxLength, errors);
@@ -67,6 +78,14 @@ public static partial class SegmentInput
             .Select((shot, index) => ReadShot(shot, $"shots[{index}]", errors))
             .ToList();
 
+        if (replacing is not null)
+        {
+            CheckIdentities(
+                stationRequests.Select(station => station?.Id), replacing.Stations.Select(station => station.Id), "stations", "station", errors);
+            CheckIdentities(
+                shotRequests.Select(shot => shot?.Id), replacing.Shots.Select(shot => shot.Id), "shots", "shot", errors);
+        }
+
         // Every station and shot is present when nothing was rejected.
         return errors.IsValid
             ? new ValidSegment(surveyDate!.Value, name, note, stations!, shots!)
@@ -78,7 +97,7 @@ public static partial class SegmentInput
         var depth = ReadLength(station?.Depth, $"{path}.depth", "Depth", allowZero: true, errors);
         var note = ReadText(station?.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
-        return depth is decimal value ? new ValidStation(station?.Id, value, note) : null;
+        return depth is not null ? new ValidStation(station?.Id, depth, note) : null;
     }
 
     private static ValidShot? ReadShot(ShotRequest? shot, string path, ModelStateDictionary errors)
@@ -87,9 +106,36 @@ public static partial class SegmentInput
         var azimuth = ReadAzimuth(shot?.Azimuth, $"{path}.azimuth", errors);
         var note = ReadText(shot?.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
-        return distance is decimal distanceValue && azimuth is decimal azimuthValue
-            ? new ValidShot(shot?.Id, distanceValue, azimuthValue, note)
+        return distance is not null && azimuth is decimal azimuthValue
+            ? new ValidShot(shot?.Id, distance, azimuthValue, note)
             : null;
+    }
+
+    // Each identity must be one of the segment's own rows, and appear only once. Rows without one are new.
+    private static void CheckIdentities(
+        IEnumerable<int?> ids, IEnumerable<int> segmentIds, string list, string row, ModelStateDictionary errors)
+    {
+        var belonging = segmentIds.ToHashSet();
+        var seen = new HashSet<int>();
+
+        foreach (var (id, index) in ids.Select((id, index) => (id, index)))
+        {
+            if (id is not int value)
+            {
+                continue;
+            }
+
+            var key = string.Create(CultureInfo.InvariantCulture, $"{list}[{index}].id");
+
+            if (!belonging.Contains(value))
+            {
+                errors.AddModelError(key, $"This {row} isn't part of the segment.");
+            }
+            else if (!seen.Add(value))
+            {
+                errors.AddModelError(key, $"This {row} appears more than once.");
+            }
+        }
     }
 
     private static DateOnly? ReadSurveyDate(string? text, ModelStateDictionary errors)
@@ -128,7 +174,7 @@ public static partial class SegmentInput
         return trimmed;
     }
 
-    private static decimal? ReadLength(string? text, string key, string reading, bool allowZero, ModelStateDictionary errors)
+    private static LengthReading? ReadLength(string? text, string key, string reading, bool allowZero, ModelStateDictionary errors)
     {
         if (!TryReadNumber(text, key, reading, errors, out var value))
         {
@@ -155,7 +201,8 @@ public static partial class SegmentInput
             return null;
         }
 
-        return metres;
+        // A number has been read, so the text isn't blank.
+        return new LengthReading(text!.Trim(), metres);
     }
 
     // 360 is stored as 0, so due north is stored one way.

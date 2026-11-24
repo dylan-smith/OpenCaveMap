@@ -107,6 +107,45 @@ test.describe('Segments', () => {
     ).toContainText('Segment 1')
   })
 
+  test('reopens a saved segment, changes a depth and adds a station, and sees the change when it is reopened', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}/segments/new`)
+    await page.getByLabel('Survey date').fill('2026-11-21')
+    await page.getByLabel('Station 1.0 depth (m)').fill('3')
+    await page.getByLabel('Station 1.0 note').fill('Line arrow')
+    await page.getByLabel('Shot 1.1 distance (m)').fill('12.5')
+    await page.getByLabel('Shot 1.1 azimuth (°)').fill('045')
+    await page.getByLabel('Station 1.1 depth (m)').fill('7.25')
+    await page.getByRole('button', { name: 'Save segment' }).click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+
+    await page.getByRole('link', { name: /Segment 1/ }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Segment 1', exact: true }),
+    ).toBeVisible()
+    await expect(page.getByLabel('Station 1.1 depth (m)')).toHaveValue('7.25')
+    await expect(page.getByLabel('Station 1.0 note')).toHaveValue('Line arrow')
+    await page.getByLabel('Station 1.1 depth (m)').fill('8.5')
+    await page.getByRole('button', { name: 'Add shot and station' }).click()
+    await page.getByLabel('Shot 1.2 distance (m)').fill('4')
+    await page.getByLabel('Shot 1.2 azimuth (°)').fill('180')
+    await page.getByLabel('Station 1.2 depth (m)').fill('10')
+    await page.getByRole('button', { name: 'Save segment' }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+    const segment = page
+      .getByRole('list', { name: 'Segments' })
+      .getByRole('listitem')
+    await expect(segment).toHaveCount(1)
+    await expect(segment).toContainText('2026-11-21 · 3 stations · 16.5 m')
+
+    await segment.getByRole('link').click()
+    await expect(page.getByLabel('Station 1.1 depth (m)')).toHaveValue('8.5')
+    await expect(page.getByLabel('Station 1.2 depth (m)')).toHaveValue('10')
+    await expect(page.getByLabel('Station 1.0 note')).toHaveValue('Line arrow')
+  })
+
   test('types a whole slate from the keyboard and saves it', async ({
     page,
   }) => {

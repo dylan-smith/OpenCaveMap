@@ -24,6 +24,16 @@ public static class Readings
     }
 
     /// <summary>
+    /// The depth or distance to store for a reading of a station or shot that is already saved. Display text is
+    /// rounded, so a reading sent back exactly as it was displayed keeps the stored value instead of being replaced by
+    /// the rounded one. Any other text is stored as typed. New stations and shots are always stored as typed.
+    /// </summary>
+    public static decimal KeepUnlessChanged(decimal storedMetres, LengthReading reading)
+    {
+        return reading.Text == FormatLength(storedMetres) ? storedMetres : reading.Metres;
+    }
+
+    /// <summary>
     /// An azimuth as stored, without trailing zeros.
     /// </summary>
     public static string FormatAzimuth(decimal degrees)

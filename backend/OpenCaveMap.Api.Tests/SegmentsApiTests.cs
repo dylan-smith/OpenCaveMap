@@ -309,18 +309,329 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
+    public async Task Create_GivesTheAddressOfTheSegment_WhichGetReturnsAsSaved()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var body = ValidSegmentBody();
+        SetField(body, "stations[0].note", "Line arrow");
+        SetField(body, "shots[0].note", "Restriction");
+
+        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", body);
+        var created = await response.Content.ReadFromJsonAsync<JsonNode>();
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal($"/api/projects/{projectId}/segments/{created!["id"]}", response.Headers.Location?.AbsolutePath);
+        AssertJson(created.ToJsonString(), await GetJsonAsync(client, response.Headers.Location!.ToString()));
+    }
+
+    [Fact]
+    public async Task Get_ReturnsTheSegment_WithIdsLabelsDisplayTextAndNotes()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var created = await CreateSegmentAsync(client, projectId, "2026-11-21", name: "Main line", distances: ["8.125", "4"]);
+
+        var segment = await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{created["id"]}");
+
+        AssertJson(
+            $$"""
+            {
+              "id": {{created["id"]}}, "number": 1, "surveyDate": "2026-11-21", "name": "Main line", "note": null,
+              "stations": [
+                { "id": {{created["stations"]![0]!["id"]}}, "label": "1.0", "depth": "10", "note": null },
+                { "id": {{created["stations"]![1]!["id"]}}, "label": "1.1", "depth": "10", "note": null },
+                { "id": {{created["stations"]![2]!["id"]}}, "label": "1.2", "depth": "10", "note": null }
+              ],
+              "shots": [
+                { "id": {{created["shots"]![0]!["id"]}}, "label": "1.1", "distance": "8.13", "azimuth": "90", "note": null },
+                { "id": {{created["shots"]![1]!["id"]}}, "label": "1.2", "distance": "4", "azimuth": "90", "note": null }
+              ]
+            }
+            """,
+            segment);
+    }
+
+    [Fact]
+    public async Task Get_IsNotFound_ForAnUnknownSegment_OrOneInAnotherProject()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var otherProjectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/projects/{projectId}/segments/999999")).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await client.GetAsync($"/api/projects/{otherProjectId}/segments/{segment["id"]}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Replace_StoresChangedReadingsNotesDateAndName_KeepingIdentitiesAndTheNumber()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await CreateSegmentAsync(client, projectId, "2026-11-20");
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", name: "Main line");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var body = segment.DeepClone();
+        body["surveyDate"] = "2026-03-02";
+        body["name"] = "  Upstream  ";
+        body["note"] = "Silty";
+        body["stations"]![1]!["depth"] = "21.5";
+        body["stations"]![1]!["note"] = "Jump left";
+        body["shots"]![0]!["distance"] = "7";
+        body["shots"]![0]!["azimuth"] = "360";
+        body["shots"]![0]!["note"] = "Restriction";
+
+        var response = await client.PutAsJsonAsync(url, body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var expected =
+            $$"""
+            {
+              "id": {{segment["id"]}}, "number": 2, "surveyDate": "2026-03-02", "name": "Upstream", "note": "Silty",
+              "stations": [
+                { "id": {{segment["stations"]![0]!["id"]}}, "label": "2.0", "depth": "10", "note": null },
+                { "id": {{segment["stations"]![1]!["id"]}}, "label": "2.1", "depth": "21.5", "note": "Jump left" }
+              ],
+              "shots": [
+                { "id": {{segment["shots"]![0]!["id"]}}, "label": "2.1", "distance": "7", "azimuth": "0", "note": "Restriction" }
+              ]
+            }
+            """;
+        AssertJson(expected, await response.Content.ReadFromJsonAsync<JsonNode>());
+        AssertJson(expected, await GetJsonAsync(client, url));
+        var listed = (await GetJsonAsync(client, $"/api/projects/{projectId}/segments")).AsArray();
+        Assert.Equal(["2026-11-20", "2026-03-02"], listed.Select(row => (string?)row!["surveyDate"]));
+        Assert.Equal("7", (string?)listed[1]!["totalLength"]);
+    }
+
+    [Fact]
+    public async Task Replace_AddingAShotAndStationAtTheEnd_GivesThemNewIdentitiesAndTheNextLabels()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var body = segment.DeepClone();
+        body["stations"]!.AsArray().Add(new JsonObject { ["id"] = null, ["depth"] = "4", ["note"] = "Sump" });
+        body["shots"]!.AsArray().Add(new JsonObject { ["id"] = null, ["distance"] = "6", ["azimuth"] = "180", ["note"] = null });
+
+        var saved = await PutJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}", body);
+
+        Assert.Equal(["1.0", "1.1", "1.2"], Labels(saved["stations"]));
+        Assert.Equal(["1.1", "1.2"], Labels(saved["shots"]));
+        Assert.Equal(Ids(segment["stations"]), Ids(saved["stations"]).Take(2));
+        Assert.Equal(Ids(segment["shots"]), Ids(saved["shots"]).Take(1));
+        Assert.DoesNotContain((int)saved["stations"]![2]!["id"]!, Ids(segment["stations"]));
+        Assert.Equal("Sump", (string?)saved["stations"]![2]!["note"]);
+        Assert.Equal("180", (string?)saved["shots"]![1]!["azimuth"]);
+    }
+
+    [Fact]
+    public async Task Replace_OmittingAStationAndItsShot_RenumbersTheRest_AndNotesStayWithTheirRows()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: ["1", "2", "3"]);
+        var body = segment.DeepClone();
+        body["stations"]![2]!["note"] = "Line arrow";
+        body["shots"]![2]!["note"] = "Restriction";
+        // Removes station 1.1 and the shot arriving at it.
+        body["stations"]!.AsArray().RemoveAt(1);
+        body["shots"]!.AsArray().RemoveAt(0);
+
+        var saved = await PutJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}", body);
+
+        Assert.Equal(["1.0", "1.1", "1.2"], Labels(saved["stations"]));
+        Assert.Equal(["1.1", "1.2"], Labels(saved["shots"]));
+        Assert.Equal(
+            [(int)segment["stations"]![0]!["id"]!, (int)segment["stations"]![2]!["id"]!, (int)segment["stations"]![3]!["id"]!],
+            Ids(saved["stations"]));
+        Assert.Equal([(int)segment["shots"]![1]!["id"]!, (int)segment["shots"]![2]!["id"]!], Ids(saved["shots"]));
+        Assert.Equal([null, "Line arrow", null], saved["stations"]!.AsArray().Select(row => (string?)row!["note"]));
+        Assert.Equal(["2", "3"], saved["shots"]!.AsArray().Select(row => (string?)row!["distance"]));
+        Assert.Equal([null, "Restriction"], saved["shots"]!.AsArray().Select(row => (string?)row!["note"]));
+        AssertJson(saved.ToJsonString(), await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}"));
+    }
+
+    [Fact]
+    public async Task Replace_AddingAStationInTheMiddle_RenumbersTheRest_AndNotesStayWithTheirRows()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: ["1", "2"]);
+        var body = segment.DeepClone();
+        body["stations"]![1]!["note"] = "Jump left";
+        body["shots"]![1]!["note"] = "Restriction";
+        // Inserts a station after 1.0, with the shot arriving at it.
+        body["stations"]!.AsArray().Insert(1, new JsonObject { ["id"] = null, ["depth"] = "11", ["note"] = "Missed" });
+        body["shots"]!.AsArray().Insert(0, new JsonObject { ["id"] = null, ["distance"] = "0.5", ["azimuth"] = "10", ["note"] = null });
+
+        var saved = await PutJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}", body);
+
+        Assert.Equal(["1.0", "1.1", "1.2", "1.3"], Labels(saved["stations"]));
+        Assert.Equal(["1.1", "1.2", "1.3"], Labels(saved["shots"]));
+        Assert.Equal((int)segment["stations"]![1]!["id"]!, (int)saved["stations"]![2]!["id"]!);
+        Assert.Equal((int)segment["shots"]![0]!["id"]!, (int)saved["shots"]![1]!["id"]!);
+        Assert.Equal([null, "Missed", "Jump left", null], saved["stations"]!.AsArray().Select(row => (string?)row!["note"]));
+        Assert.Equal(["0.5", "1", "2"], saved["shots"]!.AsArray().Select(row => (string?)row!["distance"]));
+        Assert.Equal([null, null, "Restriction"], saved["shots"]!.AsArray().Select(row => (string?)row!["note"]));
+        AssertJson(saved.ToJsonString(), await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}"));
+    }
+
+    [Theory]
+    [InlineData("surveyDate", "2026-02-30", "Survey date must be a real date.")]
+    [InlineData("stations[1].depth", "", "Depth is required.")]
+    [InlineData("stations[1].depth", "-0.5", "Depth must be zero or more.")]
+    [InlineData("shots[0].distance", "0", "Distance must be more than zero.")]
+    [InlineData("shots[0].azimuth", "N", "Azimuth must be a number, such as 12.5.")]
+    public async Task Replace_RejectsAnInvalidField_WithAMessageKeyedByThatField_AndChangesNothing(
+        string path, string value, string message)
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var body = (JsonObject)segment.DeepClone();
+        body["name"] = "Changed";
+        SetField(body, path, value);
+
+        var response = await client.PutAsJsonAsync(url, body);
+
+        await AssertValidationErrorsAsync(response, new() { [path] = [message] });
+        AssertJson(segment.ToJsonString(), await GetJsonAsync(client, url));
+    }
+
+    [Fact]
+    public async Task Replace_RejectsTheWrongNumberOfStationsAndShots()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var body = segment.DeepClone();
+        body["stations"]!.AsArray().RemoveAt(1);
+
+        var response = await client.PutAsJsonAsync($"/api/projects/{projectId}/segments/{segment["id"]}", body);
+
+        await AssertValidationErrorsAsync(response, new()
+        {
+            ["stations"] = ["A segment needs at least two stations."],
+            ["shots"] = ["A segment needs exactly one fewer shot than it has stations."],
+        });
+    }
+
+    [Fact]
+    public async Task Replace_RejectsIdentitiesFromOutsideTheSegment_AndIdentitiesThatRepeat_AndChangesNothing()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: ["1", "2"]);
+        var other = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var body = segment.DeepClone();
+        body["stations"]![1]!["id"] = (int)other["stations"]![1]!["id"]!;
+        body["stations"]![2]!["id"] = (int)segment["stations"]![0]!["id"]!;
+        body["shots"]![0]!["id"] = (int)other["shots"]![0]!["id"]!;
+        body["shots"]![1]!["id"] = 999999;
+
+        var response = await client.PutAsJsonAsync(url, body);
+
+        await AssertValidationErrorsAsync(response, new()
+        {
+            ["stations[1].id"] = ["This station isn't part of the segment."],
+            ["stations[2].id"] = ["This station appears more than once."],
+            ["shots[0].id"] = ["This shot isn't part of the segment."],
+            ["shots[1].id"] = ["This shot isn't part of the segment."],
+        });
+        AssertJson(segment.ToJsonString(), await GetJsonAsync(client, url));
+    }
+
+    // The API only shows rounded distances, so the total length is how these tests see what is stored: four shots of
+    // 1.004 each show as 1, but together they're 4.016, which shows as 4.02.
+    [Fact]
+    public async Task Replace_KeepsAStoredDistance_WhenItIsSentBackAsShown()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: ["1.004", "1.004", "1.004", "1.004"]);
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        Assert.Equal(["1", "1", "1", "1"], segment["shots"]!.AsArray().Select(row => (string?)row!["distance"]));
+
+        await PutJsonAsync(client, url, await GetJsonAsync(client, url));
+
+        Assert.Equal("4.02", await TotalLengthAsync(client, projectId));
+    }
+
+    [Fact]
+    public async Task Replace_StoresADistanceAsTyped_WhenItsTextChanged_EvenToTheSameValue()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: ["1.004", "1.004", "1.004", "1.004"]);
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var body = await GetJsonAsync(client, url);
+        body["shots"]![0]!["distance"] = "1.0";
+        body["shots"]![1]!["distance"] = "01";
+
+        await PutJsonAsync(client, url, body);
+
+        // 1 + 1 + 1.004 + 1.004
+        Assert.Equal("4.01", await TotalLengthAsync(client, projectId));
+    }
+
+    [Fact]
+    public async Task Replace_StoresADistanceAsTyped_ForANewShot_EvenWithTheTextShownForAStoredOne()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: ["1.004", "1.004", "1.004", "1.004"]);
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var body = await GetJsonAsync(client, url);
+        body["shots"]![0]!["id"] = null;
+        body["shots"]![1]!["id"] = null;
+
+        await PutJsonAsync(client, url, body);
+
+        // 1 + 1 + 1.004 + 1.004
+        Assert.Equal("4.01", await TotalLengthAsync(client, projectId));
+    }
+
+    [Fact]
+    public async Task Replace_IsNotFound_ForAnUnknownSegment_OrOneInAnotherProject()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var otherProjectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await client.PutAsJsonAsync($"/api/projects/{projectId}/segments/999999", ValidSegmentBody())).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await client.PutAsJsonAsync($"/api/projects/{otherProjectId}/segments/{segment["id"]}", segment)).StatusCode);
+        AssertJson(segment.ToJsonString(), await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}"));
+    }
+
+    [Fact]
     public async Task AnotherUser_GetsNotFound_ForEverySegmentOperation()
     {
         using var alice = TestApi.SignInAsNewUser(webFactory, "Alice");
         using var bob = TestApi.SignInAsNewUser(webFactory, "Bob");
         var projectId = await CreateProjectAsync(alice);
-        await CreateSegmentAsync(alice, projectId, "2026-11-21");
+        var segment = await CreateSegmentAsync(alice, projectId, "2026-11-21");
         var url = $"/api/projects/{projectId}/segments";
+        var changed = segment.DeepClone();
+        changed["name"] = "Bob was here";
 
         Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync(url)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync($"{url}/new")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await bob.PostAsJsonAsync(url, ValidSegmentBody())).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync($"{url}/{segment["id"]}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.PutAsJsonAsync($"{url}/{segment["id"]}", changed)).StatusCode);
         Assert.Single((await GetJsonAsync(alice, url)).AsArray());
+        AssertJson(segment.ToJsonString(), await GetJsonAsync(alice, $"{url}/{segment["id"]}"));
         Assert.Equal(2, (int)(await GetJsonAsync(alice, $"{url}/new"))["number"]!);
     }
 
@@ -333,6 +644,8 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"{url}/new")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(url, ValidSegmentBody())).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"{url}/1")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PutAsJsonAsync($"{url}/1", ValidSegmentBody())).StatusCode);
     }
 
     // Two stations and one shot, all valid.
@@ -399,6 +712,30 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<JsonNode>())!;
+    }
+
+    private static async Task<JsonNode> PutJsonAsync(HttpClient client, string url, JsonNode body)
+    {
+        var response = await client.PutAsJsonAsync(url, body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<JsonNode>())!;
+    }
+
+    // The total length of the project's only segment, as listed.
+    private static async Task<string?> TotalLengthAsync(HttpClient client, int projectId)
+    {
+        var segments = await GetJsonAsync(client, $"/api/projects/{projectId}/segments");
+        return (string?)Assert.Single(segments.AsArray())!["totalLength"];
+    }
+
+    private static IEnumerable<string?> Labels(JsonNode? rows)
+    {
+        return rows!.AsArray().Select(row => (string?)row!["label"]);
+    }
+
+    private static IEnumerable<int> Ids(JsonNode? rows)
+    {
+        return rows!.AsArray().Select(row => (int)row!["id"]!);
     }
 
     private static async Task<int> CreateProjectAsync(HttpClient client)
