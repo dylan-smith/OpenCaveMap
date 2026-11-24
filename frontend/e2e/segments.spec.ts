@@ -146,6 +146,54 @@ test.describe('Segments', () => {
     await expect(page.getByLabel('Station 1.0 note')).toHaveValue('Line arrow')
   })
 
+  test('asks before leaving with an unsaved reading, stays on Stay, and discards it on Leave', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}`)
+    await page.getByRole('link', { name: 'Add segment' }).click()
+    const depth = page.getByLabel('Station 1.0 depth (m)')
+    await depth.fill('3')
+    const entryUrl = page.url()
+    const leaveDialog = page.getByRole('dialog', {
+      name: 'Leave without saving?',
+    })
+
+    await page.getByRole('link', { name: '← Back to project' }).click()
+    await expect(leaveDialog).toBeVisible()
+    await leaveDialog.getByRole('button', { name: 'Stay' }).click()
+    await expect(leaveDialog).toBeHidden()
+    expect(page.url()).toBe(entryUrl)
+    await expect(depth).toHaveValue('3')
+
+    await page.goBack()
+    await expect(leaveDialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(leaveDialog).toBeHidden()
+    expect(page.url()).toBe(entryUrl)
+    await expect(depth).toHaveValue('3')
+
+    await page.getByRole('link', { name: '← Back to project' }).click()
+    await leaveDialog.getByRole('button', { name: 'Leave' }).click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+    await expect(page.getByText('No segments yet.')).toBeVisible()
+  })
+
+  test('has the browser ask before closing the tab with an unsaved reading', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}/segments/new`)
+    await page.getByLabel('Station 1.0 depth (m)').fill('3')
+    const prompt = page.waitForEvent('dialog')
+
+    await page.close({ runBeforeUnload: true })
+    const dialog = await prompt
+
+    expect(dialog.type()).toBe('beforeunload')
+    await dialog.dismiss()
+    expect(page.isClosed()).toBe(false)
+    await expect(page.getByLabel('Station 1.0 depth (m)')).toHaveValue('3')
+  })
+
   test('adds a segment, deletes it and sees it gone, and the next segment gets a new number', async ({
     page,
   }) => {

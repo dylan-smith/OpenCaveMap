@@ -1,14 +1,20 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, RefCallback, SubmitEvent } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useBlocker, useNavigate, useParams } from 'react-router'
+import type { Blocker } from 'react-router'
 import { describeFetchError, lengthUnit } from '../api/projects'
 import type { UnitSystem } from '../api/projects'
 import {
@@ -164,6 +170,12 @@ function toRequest(draft: Draft): SegmentRequest {
   }
 }
 
+// What a save would send, so two drafts with the same entries match even if their rows' keys or review flags differ.
+// Comparing with this tells whether anything has changed since the screen opened.
+function entries(draft: Draft) {
+  return JSON.stringify(toRequest(draft))
+}
+
 // The API's messages from a rejected save, placed on the screen. fields holds one message per field, keyed by
 // surveyDate, name or note, or by a row's key and the field's name, so a message stays with the row it was reported
 // for even if rows move. general holds the messages that aren't tied to one field.
@@ -265,6 +277,8 @@ function SegmentEntry({
 }) {
   const navigate = useNavigate()
   const [draft, setDraft] = useState<Draft | null>(null)
+  // The entries as the screen opened with them, to tell whether there are unsaved changes.
+  const [openedEntries, setOpenedEntries] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -303,7 +317,9 @@ function SegmentEntry({
         if (segment === null) {
           setNotFound(true)
         } else {
-          setDraft(toDraft(segment))
+          const opened = toDraft(segment)
+          setDraft(opened)
+          setOpenedEntries(entries(opened))
         }
       } catch (error) {
         if (!current) {
@@ -326,6 +342,27 @@ function SegmentEntry({
       current = false
     }
   }, [projectId, segmentId])
+
+  // Set when a save or delete has succeeded, so leaving afterwards doesn't ask. A failed save leaves it unset, as
+  // the entries are still unsaved. A ref, because the blocker reads it during the navigation that follows.
+  const leaving = useRef(false)
+  // Changing an entry and changing it back counts as no change.
+  const changed = draft !== null && entries(draft) !== openedEntries
+  const blocker = useBlocker(() => changed && !leaving.current)
+
+  // Closing or reloading the tab can't show the app's own dialog, so the browser asks instead.
+  useEffect(() => {
+    if (!changed) {
+      return
+    }
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => {
+      window.removeEventListener('beforeunload', warn)
+    }
+  }, [changed])
 
   if (notFound) {
     return (
@@ -525,6 +562,7 @@ function SegmentEntry({
         await replaceSegment(projectId, segmentId, toRequest(sent))
         trackEvent('SegmentUpdated')
       }
+      leaving.current = true
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       // A rejected segment is the user's to fix, not a failure to report.
@@ -546,6 +584,7 @@ function SegmentEntry({
     try {
       await deleteSegment(projectId, id)
       trackEvent('SegmentDeleted')
+      leaving.current = true
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       trackException(error, { operation: 'deleteSegment' })
@@ -729,7 +768,45 @@ function SegmentEntry({
           </Paper>
         )
       )}
+      <LeaveDialog blocker={blocker} />
     </Stack>
+  )
+}
+
+// Asks before leaving with unsaved entries. Stay cancels the navigation, which also undoes the browser's back or
+// forward button, so the address and the entries stay as they were. Focus starts on Stay, the choice that loses
+// nothing, and Escape stays too.
+function LeaveDialog({ blocker }: { blocker: Blocker }) {
+  const id = useId()
+  const stay = () => blocker.reset?.()
+  // The dialog's contents mount each time it opens, so this runs once per opening. Stable, so a re-render while it's
+  // open doesn't take focus back from Leave.
+  const focusStay = useCallback((button: HTMLButtonElement | null) => {
+    button?.focus()
+  }, [])
+  return (
+    <Dialog
+      open={blocker.state === 'blocked'}
+      onClose={stay}
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-description`}
+    >
+      <DialogTitle id={`${id}-title`}>Leave without saving?</DialogTitle>
+      <DialogContent>
+        <DialogContentText id={`${id}-description`}>
+          Your entries in this segment haven&apos;t been saved. If you leave,
+          they&apos;ll be lost.
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button ref={focusStay} onClick={stay}>
+          Stay
+        </Button>
+        <Button color="error" onClick={() => blocker.proceed?.()}>
+          Leave
+        </Button>
+      </DialogActions>
+    </Dialog>
   )
 }
 

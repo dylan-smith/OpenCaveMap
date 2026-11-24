@@ -126,6 +126,31 @@ test.describe('Accessibility', () => {
     }
   })
 
+  test('leave without saving dialog has no detectable accessibility violations', async ({
+    page,
+    request,
+  }) => {
+    const response = await request.post(projectsApiUrl, {
+      data: { name: `A11y leave project ${Date.now()}` },
+    })
+    expect(response.ok()).toBe(true)
+    const { id } = (await response.json()) as { id: number }
+
+    try {
+      await page.goto(`/projects/${id}/segments/new`)
+      await page.getByLabel('Station 1.0 depth (m)').fill('3')
+      await page.getByRole('link', { name: '← Back to project' }).click()
+      await expect(
+        page.getByRole('dialog', { name: 'Leave without saving?' }),
+      ).toBeVisible()
+      const results = await new AxeBuilder({ page }).analyze()
+
+      expect(results.violations).toEqual([])
+    } finally {
+      await request.delete(`${projectsApiUrl}/${id}`)
+    }
+  })
+
   test('segment entry screen with a flagged shot has no detectable accessibility violations', async ({
     page,
     request,
