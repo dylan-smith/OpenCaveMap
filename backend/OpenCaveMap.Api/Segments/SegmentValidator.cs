@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using OpenCaveMap.Api.Contracts;
+using OpenCaveMap.Api.Models;
 using OpenCaveMap.Api.Validation;
 
 namespace OpenCaveMap.Api.Segments;
@@ -21,8 +22,8 @@ public sealed record ValidShot(int? Id, decimal Distance, decimal Azimuth, strin
 
 /// <summary>
 /// Validates a segment request and turns it into a <see cref="ValidSegment"/>. Each message is keyed by the camelCase
-/// path of the field it belongs to (surveyDate, stations[1].depth, shots[0].azimuth), so the entry screen can put it
-/// beside that field.
+/// path of the field it belongs to (surveyDate, stations[1].depth, shots[0].azimuth, stations[2].id), so the entry
+/// screen can put it beside that field.
 /// </summary>
 public static class SegmentValidator
 {
@@ -40,7 +41,11 @@ public static class SegmentValidator
     /// <summary>
     /// Returns the segment, or null after adding a message to <paramref name="errors"/> for every problem found.
     /// </summary>
-    public static ValidSegment? Validate(SegmentRequest request, ModelStateDictionary errors)
+    /// <param name="replacing">
+    /// The saved segment the request replaces, whose stations and shots the request's identities must belong to.
+    /// Null for a new segment, whose identities are ignored.
+    /// </param>
+    public static ValidSegment? Validate(SegmentRequest request, ModelStateDictionary errors, Segment? replacing = null)
     {
         var surveyDate = FieldRules.Required(request.SurveyDate, "surveyDate", "Survey date", errors);
         var name = FieldRules.OptionalText(request.Name, "name", "Name", NameMaxLength, errors);
@@ -66,6 +71,14 @@ public static class SegmentValidator
         var shots = shotRequests
             .Select((shot, index) => ValidateShot(shot, FieldRules.ItemKey("shots", index), errors))
             .ToList();
+
+        if (replacing is not null)
+        {
+            CheckIdentities(
+                stationRequests.Select(station => station?.Id), replacing.Stations.Select(station => station.Id), "stations", "station", errors);
+            CheckIdentities(
+                shotRequests.Select(shot => shot?.Id), replacing.Shots.Select(shot => shot.Id), "shots", "shot", errors);
+        }
 
         // The survey date and every station and shot are present when nothing was rejected.
         return errors.IsValid
@@ -96,6 +109,33 @@ public static class SegmentValidator
         return distance is decimal distanceValue && azimuth is decimal azimuthValue
             ? new ValidShot(shot.Id, distanceValue, azimuthValue, note)
             : null;
+    }
+
+    // Each identity must be one of the segment's own rows, and appear only once. Rows without one are new.
+    private static void CheckIdentities(
+        IEnumerable<int?> ids, IEnumerable<int> segmentIds, string list, string row, ModelStateDictionary errors)
+    {
+        var belonging = segmentIds.ToHashSet();
+        var seen = new HashSet<int>();
+
+        foreach (var (id, index) in ids.Select((id, index) => (id, index)))
+        {
+            if (id is not int value)
+            {
+                continue;
+            }
+
+            var key = $"{FieldRules.ItemKey(list, index)}.id";
+
+            if (!belonging.Contains(value))
+            {
+                errors.AddModelError(key, $"This {row} isn't part of the segment.");
+            }
+            else if (!seen.Add(value))
+            {
+                errors.AddModelError(key, $"This {row} appears more than once.");
+            }
+        }
     }
 
     private static decimal? ValidateLength(

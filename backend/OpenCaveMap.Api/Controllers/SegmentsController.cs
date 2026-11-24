@@ -149,8 +149,71 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
             "Created segment {SegmentId} with number {SegmentNumber} in project {ProjectId}",
             segment.Id, segment.Number, projectId);
 
-        // There's no address for one segment yet, so the response has no Location.
-        return StatusCode(StatusCodes.Status201Created, ToResponse(segment));
+        return CreatedAtAction(nameof(GetById), new { projectId, segmentId = segment.Id }, ToResponse(segment));
+    }
+
+    [HttpGet("{segmentId:int}")]
+    public async Task<ActionResult<SegmentResponse>> GetById(int projectId, int segmentId)
+    {
+        var segment = await FindSegmentAsync(projectId, segmentId, tracking: false);
+
+        if (segment is null)
+        {
+            logger.LogWarning("Segment {SegmentId} not found in project {ProjectId}", segmentId, projectId);
+            return NotFound();
+        }
+
+        return Ok(ToResponse(segment));
+    }
+
+    /// <summary>
+    /// Replaces the whole segment. Stations and shots sent with an identity keep it, ones without are new, and saved
+    /// ones left out are removed.
+    /// </summary>
+    [HttpPut("{segmentId:int}")]
+    public async Task<ActionResult<SegmentResponse>> Replace(int projectId, int segmentId, [FromBody] SegmentRequest request)
+    {
+        var segment = await FindSegmentAsync(projectId, segmentId, tracking: true);
+
+        if (segment is null)
+        {
+            logger.LogWarning("Segment {SegmentId} not found in project {ProjectId} for replacement", segmentId, projectId);
+            return NotFound();
+        }
+
+        var input = SegmentValidator.Validate(request, ModelState, replacing: segment);
+
+        if (input is null)
+        {
+            logger.LogWarning("Replacement of segment {SegmentId} in project {ProjectId} failed validation", segmentId, projectId);
+            return ValidationProblem(ModelState);
+        }
+
+        // One save, so the replacement either wholly happens or changes nothing.
+        SegmentReplacement.Apply(segment, input);
+        await dbContext.SaveChangesAsync();
+
+        logger.LogInformation("Replaced segment {SegmentId} in project {ProjectId}", segmentId, projectId);
+
+        return Ok(ToResponse(segment));
+    }
+
+    // The segment with its stations and shots, or null unless both the project is the current user's and the segment
+    // belongs to it.
+    private async Task<Segment?> FindSegmentAsync(int projectId, int segmentId, bool tracking)
+    {
+        if (!await dbContext.Projects.AnyAsync(item => item.Id == projectId))
+        {
+            return null;
+        }
+
+        var segments = tracking ? dbContext.Segments : dbContext.Segments.AsNoTracking();
+
+        return await segments
+            .Include(segment => segment.Stations)
+            .Include(segment => segment.Shots)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(segment => segment.Id == segmentId && segment.ProjectId == projectId);
     }
 
     private static SegmentResponse ToResponse(Segment segment)
