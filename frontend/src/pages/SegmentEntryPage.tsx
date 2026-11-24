@@ -20,10 +20,13 @@ import {
   SegmentRejectedError,
 } from '../api/segments'
 import { trackEvent, trackException } from '../telemetry'
+import LeaveDialog from './LeaveDialog'
+import { useLeaveWarning } from './leaveWarning'
 import NotFoundPage from './NotFoundPage'
 import { parseId } from './parseId'
 import { useReadingKeys } from './readingKeys'
 import {
+  comparisonText,
   fieldsToFix,
   insertStationAfter,
   newShot,
@@ -54,6 +57,8 @@ function SegmentEntry({
 }) {
   const navigate = useNavigate()
   const [draft, setDraft] = useState<Draft | null>(null)
+  // The entries as the screen opened with them, to tell whether there are unsaved changes.
+  const [openedEntries, setOpenedEntries] = useState<string | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -84,7 +89,9 @@ function SegmentEntry({
         if (segment === null) {
           setNotFound(true)
         } else {
-          setDraft(toDraft(segment))
+          const opened = toDraft(segment)
+          setDraft(opened)
+          setOpenedEntries(comparisonText(opened))
         }
       } catch (error) {
         if (!current) {
@@ -107,6 +114,10 @@ function SegmentEntry({
       current = false
     }
   }, [projectId, segmentId])
+
+  // Changing an entry and changing it back counts as no change.
+  const changed = draft !== null && comparisonText(draft) !== openedEntries
+  const leaveWarning = useLeaveWarning(changed)
 
   if (notFound) {
     return (
@@ -260,6 +271,7 @@ function SegmentEntry({
         await replaceSegment(projectId, segmentId, toRequest(sent))
         trackEvent('SegmentUpdated')
       }
+      leaveWarning.allowLeaving()
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       // A rejected segment is the user's to fix, not a failure to report.
@@ -281,6 +293,7 @@ function SegmentEntry({
     try {
       await deleteSegment(projectId, id)
       trackEvent('SegmentDeleted')
+      leaveWarning.allowLeaving()
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       trackException(error, { operation: 'deleteSegment' })
@@ -468,6 +481,7 @@ function SegmentEntry({
           </Paper>
         )
       )}
+      <LeaveDialog {...leaveWarning.dialog} />
     </Stack>
   )
 }
