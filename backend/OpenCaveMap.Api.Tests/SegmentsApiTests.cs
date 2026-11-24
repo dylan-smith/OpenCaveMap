@@ -44,23 +44,19 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         using var client = TestApi.SignInAsNewUser(webFactory);
         var projectId = await CreateProjectAsync(client);
 
-        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", new
+        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", new JsonObject
         {
-            surveyDate = "2026-11-21",
-            unitSystem = "metric",
-            name = "  Main line upstream  ",
-            note = "Good visibility",
-            stations = new object[]
-            {
-                new { id = (int?)null, depth = "3", note = "Line arrow" },
-                new { id = (int?)null, depth = " 12.50 ", note = "   " },
-                new { id = (int?)null, depth = "0", note = (string?)null },
-            },
-            shots = new object[]
-            {
-                new { id = (int?)null, distance = "30.00", azimuth = "045", note = "Restriction" },
-                new { id = (int?)null, distance = "8.125", azimuth = "359.5", note = (string?)null },
-            },
+            ["surveyDate"] = "2026-11-21",
+            ["unitSystem"] = "metric",
+            ["name"] = "  Main line upstream  ",
+            ["note"] = "Good visibility",
+            ["stations"] = new JsonArray(
+                new JsonObject { ["id"] = null, ["depth"] = "3", ["note"] = "Line arrow" },
+                new JsonObject { ["id"] = null, ["depth"] = " 12.50 ", ["note"] = "   " },
+                new JsonObject { ["id"] = null, ["depth"] = "0", ["note"] = null }),
+            ["shots"] = new JsonArray(
+                new JsonObject { ["id"] = null, ["distance"] = "30.00", ["azimuth"] = "045", ["note"] = "Restriction" },
+                new JsonObject { ["id"] = null, ["distance"] = "8.125", ["azimuth"] = "359.5", ["note"] = null }),
         });
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -242,6 +238,25 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
 
         await AssertValidationErrorsAsync(
             response, new() { ["shots"] = ["A segment needs exactly one fewer shot than it has stations."] });
+    }
+
+    [Fact]
+    public async Task Create_ReadsAMissingStationOrShotAsABlankOne()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var body = ValidSegmentBody();
+        body["stations"]![1] = null;
+        body["shots"]![0] = null;
+
+        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", body);
+
+        await AssertValidationErrorsAsync(response, new()
+        {
+            ["stations[1].depth"] = ["Depth is required."],
+            ["shots[0].distance"] = ["Distance is required."],
+            ["shots[0].azimuth"] = ["Azimuth is required."],
+        });
     }
 
     [Fact]

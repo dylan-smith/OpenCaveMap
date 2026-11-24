@@ -102,20 +102,26 @@ public static partial class SegmentInput
     private static ValidStation? ReadStation(
         StationRequest? station, string path, UnitSystem unitSystem, ModelStateDictionary errors)
     {
-        var depth = ReadLength(station?.Depth, $"{path}.depth", "Depth", allowZero: true, unitSystem, errors);
-        var note = ReadText(station?.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
+        // A missing station is read as a blank one, so its depth is reported as required.
+        station ??= new StationRequest();
 
-        return depth is not null ? new ValidStation(station?.Id, depth, note) : null;
+        var depth = ReadLength(station.Depth, $"{path}.depth", "Depth", allowZero: true, unitSystem, errors);
+        var note = ReadText(station.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
+
+        return depth is not null ? new ValidStation(station.Id, depth, note) : null;
     }
 
     private static ValidShot? ReadShot(ShotRequest? shot, string path, UnitSystem unitSystem, ModelStateDictionary errors)
     {
-        var distance = ReadLength(shot?.Distance, $"{path}.distance", "Distance", allowZero: false, unitSystem, errors);
-        var azimuth = ReadAzimuth(shot?.Azimuth, $"{path}.azimuth", errors);
-        var note = ReadText(shot?.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
+        // A missing shot is read as a blank one, so its distance and azimuth are reported as required.
+        shot ??= new ShotRequest();
+
+        var distance = ReadLength(shot.Distance, $"{path}.distance", "Distance", allowZero: false, unitSystem, errors);
+        var azimuth = ReadAzimuth(shot.Azimuth, $"{path}.azimuth", errors);
+        var note = ReadText(shot.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
         return distance is not null && azimuth is decimal azimuthValue
-            ? new ValidShot(shot?.Id, distance, azimuthValue, note)
+            ? new ValidShot(shot.Id, distance, azimuthValue, note)
             : null;
     }
 
