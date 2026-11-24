@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useBlocker } from 'react-router'
+import { setUnsavedEntries } from './unsavedEntries'
 
 // Asks before leaving the screen while changed is true. Going elsewhere in the app, or back or forward in the
 // browser, opens LeaveDialog with the props this returns as dialog, and closing or reloading the tab gets the
@@ -21,6 +22,14 @@ export function useLeaveWarning(changed: boolean) {
     window.addEventListener('beforeunload', warn)
     return () => {
       window.removeEventListener('beforeunload', warn)
+    }
+  }, [changed])
+
+  // Lets App keep the screen through a lost sign-in, and ask before signing out.
+  useEffect(() => {
+    setUnsavedEntries(changed)
+    return () => {
+      setUnsavedEntries(false)
     }
   }, [changed])
 

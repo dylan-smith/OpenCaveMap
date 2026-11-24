@@ -6,7 +6,8 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
 
-// Asks before leaving with unsaved entries. Focus starts on Stay, the choice that loses nothing, and Escape stays too.
+// Asks before leaving with unsaved entries, by going elsewhere or by signing out. Focus starts on Stay, the choice
+// that loses nothing, and Escape stays too.
 function LeaveDialog({
   open,
   onStay,
