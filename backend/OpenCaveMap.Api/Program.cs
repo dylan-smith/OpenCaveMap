@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json.Serialization;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -45,7 +46,12 @@ if (!string.IsNullOrWhiteSpace(azureMonitorConnectionString))
 }
 
 builder.Services.AddOpenCaveMapAuthentication(builder.Configuration);
-builder.Services.AddControllers();
+// A number is read from a JSON number only, not from text that holds one. The OpenAPI document is built from the
+// second set of options, so it says the same.
+builder.Services.AddControllers().AddJsonOptions(options =>
+    options.JsonSerializerOptions.NumberHandling = JsonNumberHandling.Strict);
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 // No database check: the availability test pings /health, and touching SQL would stop the serverless database
 // from auto-pausing.
 builder.Services.AddHealthChecks();

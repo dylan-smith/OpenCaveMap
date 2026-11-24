@@ -6,7 +6,8 @@ namespace OpenCaveMap.Api.Data;
 
 /// <remarks>
 /// Projects belong to a user. A query filter only shows the current user's, and new ones are given the current user
-/// when they're saved, so the controllers never handle the owner themselves.
+/// when they're saved, so the controllers never handle the owner themselves. Segments are filtered to the current
+/// user's projects in the same way.
 /// </remarks>
 public class OpenCaveMapDbContext(DbContextOptions<OpenCaveMapDbContext> options, CurrentUser currentUser) : DbContext(options)
 {
@@ -16,6 +17,8 @@ public class OpenCaveMapDbContext(DbContextOptions<OpenCaveMapDbContext> options
     public DbSet<User> Users => Set<User>();
 
     public DbSet<Project> Projects => Set<Project>();
+
+    public DbSet<Segment> Segments => Set<Segment>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -82,5 +85,66 @@ public class OpenCaveMapDbContext(DbContextOptions<OpenCaveMapDbContext> options
             .Property(project => project.Name)
             .HasMaxLength(200)
             .IsRequired();
+
+        modelBuilder.Entity<Segment>(segment =>
+        {
+            // Every action looks the project up first. This is the guard behind that: a query for segments only
+            // finds those in the current user's projects, even if it's made without looking the project up.
+            segment.HasQueryFilter(item => item.Project.UserId == CurrentUserId);
+
+            segment.HasOne(item => item.Project)
+                .WithMany()
+                .HasForeignKey(item => item.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            segment.HasIndex(item => new { item.ProjectId, item.Number })
+                .IsUnique();
+
+            segment.Property(item => item.Name)
+                .HasMaxLength(200);
+
+            segment.Property(item => item.Note)
+                .HasMaxLength(2000);
+
+            segment.HasMany(item => item.Stations)
+                .WithOne()
+                .HasForeignKey(station => station.SegmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            segment.HasMany(item => item.Shots)
+                .WithOne()
+                .HasForeignKey(shot => shot.SegmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Positions aren't unique, because one save renumbers several rows together.
+        modelBuilder.Entity<Station>(station =>
+        {
+            station.ToTable("Stations");
+
+            station.HasIndex(item => new { item.SegmentId, item.Position });
+
+            station.Property(item => item.Depth)
+                .HasPrecision(11, 6);
+
+            station.Property(item => item.Note)
+                .HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<Shot>(shot =>
+        {
+            shot.ToTable("Shots");
+
+            shot.HasIndex(item => new { item.SegmentId, item.Position });
+
+            shot.Property(item => item.Distance)
+                .HasPrecision(11, 6);
+
+            shot.Property(item => item.Azimuth)
+                .HasPrecision(6, 3);
+
+            shot.Property(item => item.Note)
+                .HasMaxLength(500);
+        });
     }
 }

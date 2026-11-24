@@ -65,9 +65,20 @@ npm run test:e2e
 - Keep changes minimal and scoped to the requested task. Don't edit unrelated files for style.
 - Reuse existing patterns and naming in nearby files, and match the surrounding comment density.
 - Avoid new dependencies unless they're needed.
-- Keep logic in the backend where possible, and limit the frontend to UI and rendering. Parsing, validation,
-  business rules, naming rules and generating files belong in the API: the frontend sends what the user gave it and
-  shows what comes back.
+- Keep logic in the backend where possible, and limit the frontend to UI and rendering. Validation, business rules,
+  naming rules and generating files belong in the API: the frontend sends what the user gave it and shows what comes
+  back.
+- Give API requests and responses typed values: a number is a JSON number, a date is `YYYY-MM-DD` and a fixed set
+  of choices is an enum, not text for the API to parse. The frontend turns what the user typed into those values, and
+  that is the only check it makes.
+- How a value is shown is rendering, so it's the frontend's: rounding, number formatting, and labels made from data
+  the API already returns. The API returns values unrounded and unformatted.
+- Validate a request in a validator beside its entity (`Segments/SegmentValidator.cs`), not with validation
+  attributes. Its `Validate` method returns a `ValidX` record, the checked values ready to store, or null after adding
+  a message for every problem, keyed by the field's camelCase path (`stations[1].depth`), and the controller then
+  returns `ValidationProblem(ModelState)`. Request fields are all optional, so the validator writes every message.
+  Checks that every entity shares, such as required values and trimmed text, are in `Validation/FieldRules.cs`, and
+  anything a rule needs from the database is passed in.
 - Formatting is enforced: `.editorconfig` + `dotnet format` for C#, Prettier + ESLint for the
   frontend. Line endings are LF.
 - Warnings fail the build. The backend uses `AnalysisLevel` `latest-recommended` with
@@ -82,7 +93,8 @@ npm run test:e2e
   See `backend/OpenCaveMap.Api/Authentication/` and the README's "Sign-in" section.
 - Projects belong to a user. `OpenCaveMapDbContext` filters them to the current user and sets the owner on new
   ones. Anything added under a project should only be reached through its project, so a new endpoint must look
-  that up first, or it can reach another user's data.
+  that up first, or it can reach another user's data. As a second guard, give it a query filter through its
+  project too, as segments have.
 - Local dev, E2E and PR previews use test sign-in (`Bearer test:<name>`); production never turns it on.
 
 ### Database
