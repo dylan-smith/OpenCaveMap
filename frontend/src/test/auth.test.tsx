@@ -1,10 +1,9 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import App from '../App'
 import { sessionFromGoogleCredential } from '../auth/google'
 import { getSession, sessionStorageKey, setSession } from '../auth/session'
+import { renderAt } from './renderAt'
 
 vi.mock('../telemetry', () => ({
   trackEvent: vi.fn(),
@@ -17,14 +16,6 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
-}
-
-function renderAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
-  )
 }
 
 function authorizationOf(call: unknown[]) {

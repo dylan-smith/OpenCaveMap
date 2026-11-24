@@ -2,9 +2,9 @@ import { StrictMode } from 'react'
 import CssBaseline from '@mui/material/CssBaseline'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router'
+import { createBrowserRouter, RouterProvider } from 'react-router'
 import './index.css'
-import App from './App.tsx'
+import { routes } from './routes.tsx'
 import ErrorBoundary from './ErrorBoundary.tsx'
 import { initTelemetry, trackException } from './telemetry.ts'
 
@@ -31,6 +31,9 @@ const theme = createTheme({
   },
 })
 
+// A data router, which navigation blocking (useBlocker) needs.
+const router = createBrowserRouter(routes)
+
 // Setting these replaces React's default console logging, so keep logging as well as reporting.
 function reportRootError(kind: string) {
   return (error: unknown) => {
@@ -48,9 +51,7 @@ createRoot(document.getElementById('root')!, {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <ErrorBoundary>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </ErrorBoundary>
     </ThemeProvider>
   </StrictMode>,
