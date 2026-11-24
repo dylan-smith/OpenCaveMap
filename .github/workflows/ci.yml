@@ -525,13 +525,16 @@ jobs:
         if: steps.current.outputs.current == 'true'
         run: bash .github/scripts/preview-migrations.sh record
 
+      # Run by the Database CLI, like the migrations, not by azure/sql-action: on a runner outside Azure, that action's
+      # sqlcmd can't sign in (it asks the host's metadata service for a token, is refused, and never tries the az login).
       - name: Create the API's database user
         if: steps.current.outputs.current == 'true'
-        uses: azure/sql-action@v2.4
-        with:
-          connection-string: Server=tcp:${{ steps.infra.outputs['sql-server-fqdn'] }},1433;Initial Catalog=${{ env.PREVIEW_DB_NAME }};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;
-          path: .github/scripts/preview-db-user.sql
-          arguments: -v AppUserName=${{ env.PREVIEW_APP_NAME }} AppSid=${{ steps.infra.outputs['api-client-id'] }}
+        run: >-
+          ./backend/database-publish/OpenCaveMap.Database --run-script .github/scripts/preview-db-user.sql
+          "$CONNECTION_STRING" "AppUserName=$PREVIEW_APP_NAME" "AppSid=$APP_CLIENT_ID"
+        env:
+          CONNECTION_STRING: Server=tcp:${{ steps.infra.outputs['sql-server-fqdn'] }},1433;Initial Catalog=${{ env.PREVIEW_DB_NAME }};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=120;
+          APP_CLIENT_ID: ${{ steps.infra.outputs['api-client-id'] }}
 
       # Nothing after this connects to the database from the runner. Failing to remove the rule only leaves one
       # address let in, which the script reports, so it doesn't stop the deployment.
