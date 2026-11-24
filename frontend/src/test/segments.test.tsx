@@ -81,21 +81,27 @@ function savedSegment() {
   }
 }
 
-// A fake segments API for project 7. A POST or PUT gets the handler's response, or a saved segment by default.
+// A fake segments API for project 7. A POST, PUT or DELETE gets the handler's response, by default a saved segment
+// or, for a DELETE, no content.
 function mockApi({
   segments = savedSegments,
   blank = blankSegment(),
   saved = savedSegment(),
   onCreate = () => Promise.resolve(jsonResponse({}, 201)),
   onReplace = () => Promise.resolve(jsonResponse(savedSegment())),
+  onDelete = () => Promise.resolve(new Response(null, { status: 204 })),
 }: {
   segments?: unknown[]
   blank?: unknown
   saved?: unknown
   onCreate?: (body: unknown) => Promise<Response>
   onReplace?: (body: unknown, url: string) => Promise<Response>
+  onDelete?: (url: string) => Promise<Response>
 } = {}) {
   return mockFetch((url, init) => {
+    if (init?.method === 'DELETE') {
+      return onDelete(url)
+    }
     // The API client always sends JSON text.
     if (init?.method === 'POST') {
       return onCreate(JSON.parse(init.body as string))
@@ -683,6 +689,16 @@ describe('segment entry screen', () => {
     expect(trackException).toHaveBeenCalledTimes(1)
   })
 
+  it('has no delete action for a segment that is not saved yet', async () => {
+    mockApi()
+
+    await openNewSegment()
+
+    expect(
+      screen.queryByRole('button', { name: /Delete/ }),
+    ).not.toBeInTheDocument()
+  })
+
   it('goes back to the project page without saving', async () => {
     const user = userEvent.setup()
     mockApi()
@@ -907,6 +923,104 @@ describe('reopening a saved segment', () => {
     expect(await screen.findByText(unreachableMessage)).toBeInTheDocument()
     expect(screen.getByLabelText('Station 3.2 note')).toHaveValue('Sump')
     expect(trackException).toHaveBeenCalledTimes(1)
+  })
+
+  it('deletes the segment straight away and returns to the project page, where it is no longer listed', async () => {
+    const user = userEvent.setup()
+    const segments = [...savedSegments]
+    let deletedAt = ''
+    mockApi({
+      segments,
+      onDelete: (url) => {
+        deletedAt = url
+        segments.splice(0, 1)
+        return Promise.resolve(new Response(null, { status: 204 }))
+      },
+    })
+    await openSavedSegment()
+
+    await user.click(screen.getByRole('button', { name: 'Delete segment' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Crystal Cave' }),
+    ).toBeInTheDocument()
+    expect(deletedAt).toMatch(/\/api\/projects\/7\/segments\/12$/)
+    expect(trackEvent).toHaveBeenCalledWith('SegmentDeleted')
+    const items = within(
+      await screen.findByRole('list', { name: 'Segments' }),
+    ).getAllByRole('listitem')
+    expect(items).toHaveLength(1)
+    expect(items[0]).toHaveTextContent('Segment 1')
+    expect(screen.queryByText(/Segment 3/)).not.toBeInTheDocument()
+  })
+
+  it('treats a segment that is already gone as deleted', async () => {
+    const user = userEvent.setup()
+    mockApi({
+      onDelete: () => Promise.resolve(new Response(null, { status: 404 })),
+    })
+    await openSavedSegment()
+
+    await user.click(screen.getByRole('button', { name: 'Delete segment' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Crystal Cave' }),
+    ).toBeInTheDocument()
+    expect(trackEvent).toHaveBeenCalledWith('SegmentDeleted')
+    expect(trackException).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [
+      'fails',
+      () => Promise.resolve(new Response(null, { status: 500 })),
+      'Unable to delete segment.',
+    ],
+    ['cannot reach the API', unreachable, unreachableMessage],
+  ])(
+    'shows a message and stays usable when deleting %s',
+    async (_outcome, onDelete, message) => {
+      const user = userEvent.setup()
+      mockApi({ onDelete })
+      await openSavedSegment()
+
+      await user.type(screen.getByLabelText('Station 3.2 note'), 'Sump')
+      await user.click(screen.getByRole('button', { name: 'Delete segment' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(message)
+      expect(
+        screen.getByRole('button', { name: 'Delete segment' }),
+      ).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Save segment' })).toBeEnabled()
+      expect(screen.getByLabelText('Station 3.2 note')).toHaveValue('Sump')
+      expect(trackException).toHaveBeenCalledTimes(1)
+      expect(trackEvent).not.toHaveBeenCalled()
+    },
+  )
+
+  it('never deletes the segment with Enter in a field', async () => {
+    const user = userEvent.setup()
+    const onDelete = vi.fn(() =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    )
+    mockApi({ onDelete })
+    await openSavedSegment()
+
+    // Enter in the name saves the segment, so it goes last.
+    for (const name of [
+      'Station 3.0 depth (m)',
+      'Shot 3.1 azimuth (°)',
+      'Station 3.2 depth (m)',
+      'Shot 3.2 note',
+      'Name',
+    ]) {
+      act(() => screen.getByLabelText(name).focus())
+      await user.keyboard('{Enter}')
+    }
+
+    await screen.findByRole('heading', { name: 'Crystal Cave' })
+    expect(trackEvent).toHaveBeenCalledWith('SegmentUpdated')
+    expect(onDelete).not.toHaveBeenCalled()
   })
 
   it("shows the not found page when the segment doesn't exist", async () => {

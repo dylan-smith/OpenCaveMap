@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using OpenCaveMap.Api.Data;
+using OpenCaveMap.Api.Models;
 
 namespace OpenCaveMap.Api.Tests;
 
@@ -639,6 +643,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.NotFound, (await bob.PostAsJsonAsync(url, ValidSegmentBody())).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await bob.GetAsync($"{url}/{segment["id"]}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await bob.PutAsJsonAsync($"{url}/{segment["id"]}", changed)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await bob.DeleteAsync($"{url}/{segment["id"]}")).StatusCode);
         Assert.Single((await GetJsonAsync(alice, url)).AsArray());
         AssertJson(segment.ToJsonString(), await GetJsonAsync(alice, $"{url}/{segment["id"]}"));
         Assert.Equal(2, (int)(await GetJsonAsync(alice, $"{url}/new"))["number"]!);
@@ -655,6 +660,93 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(url, ValidSegmentBody())).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"{url}/1")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await client.PutAsJsonAsync($"{url}/1", ValidSegmentBody())).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"{url}/1")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_RemovesTheSegment_SoItIsNoLongerListedOrFound()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+
+        var response = await client.DeleteAsync(url);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        AssertJson("[]", await GetJsonAsync(client, $"/api/projects/{projectId}/segments"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync(url)).StatusCode);
+    }
+
+    // No endpoint reaches a station or shot except through its segment, so whether they went with it is checked in
+    // the database.
+    [Fact]
+    public async Task Delete_RemovesTheSegmentsStationsAndShots()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [5m, 6m]);
+        var segmentId = (int)segment["id"]!;
+
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (await client.DeleteAsync($"/api/projects/{projectId}/segments/{segmentId}")).StatusCode);
+
+        using var scope = webFactory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<OpenCaveMapDbContext>();
+        Assert.False(await dbContext.Set<Station>().AnyAsync(station => station.SegmentId == segmentId));
+        Assert.False(await dbContext.Set<Shot>().AnyAsync(shot => shot.SegmentId == segmentId));
+    }
+
+    [Fact]
+    public async Task Delete_NeverReusesTheNumber_AndLeavesTheOtherSegmentsAsTheyWere()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var first = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var second = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var third = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var url = $"/api/projects/{projectId}/segments";
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"{url}/{third["id"]}")).StatusCode);
+        var next = await GetJsonAsync(client, $"{url}/new");
+        var fourth = await CreateSegmentAsync(client, projectId, "2026-11-21");
+
+        Assert.Equal(4, (int)next["number"]!);
+        Assert.Equal(4, (int)fourth["number"]!);
+        Assert.Equal([4, 2, 1], (await GetJsonAsync(client, url)).AsArray().Select(row => (int)row!["number"]!));
+        AssertJson(first.ToJsonString(), await GetJsonAsync(client, $"{url}/{first["id"]}"));
+        AssertJson(second.ToJsonString(), await GetJsonAsync(client, $"{url}/{second["id"]}"));
+    }
+
+    [Fact]
+    public async Task Delete_IsNotFound_ForASegmentInAnotherProject_AndLeavesItThere()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var otherProjectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+
+        var response = await client.DeleteAsync($"/api/projects/{otherProjectId}/segments/{segment["id"]}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        AssertJson(segment.ToJsonString(), await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}"));
+    }
+
+    [Fact]
+    public async Task AProjectWithSegments_CanStillBeDeleted()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await CreateSegmentAsync(client, projectId, "2026-11-21");
+        await CreateSegmentAsync(client, projectId, "2026-11-22");
+
+        var response = await client.DeleteAsync($"/api/projects/{projectId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/projects/{projectId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/projects/{projectId}/segments")).StatusCode);
     }
 
     // Two stations and one shot, all valid.
