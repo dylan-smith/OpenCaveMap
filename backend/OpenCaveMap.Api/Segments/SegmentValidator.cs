@@ -48,12 +48,13 @@ public static class SegmentValidator
     public static ValidSegment? Validate(SegmentRequest request, ModelStateDictionary errors, Segment? replacing = null)
     {
         var surveyDate = FieldRules.Required(request.SurveyDate, "surveyDate", "Survey date", errors);
+        var unitSystem = FieldRules.Required(request.UnitSystem, "unitSystem", "Unit system", errors);
         var name = FieldRules.OptionalText(request.Name, "name", "Name", NameMaxLength, errors);
         var note = FieldRules.OptionalText(request.Note, "note", "Note", SegmentNoteMaxLength, errors);
 
-        // Optional for now: the entry screen doesn't name one yet, and a request without one is read as metres, as
-        // every request was before projects had a unit system.
-        var unitSystem = request.UnitSystem ?? UnitSystem.Metric;
+        // Without a unit system the request is rejected anyway, but its readings are still checked as metres so that
+        // every other problem is reported too.
+        var readingUnitSystem = unitSystem ?? UnitSystem.Metric;
 
         var stationRequests = request.Stations ?? [];
         var shotRequests = request.Shots ?? [];
@@ -70,12 +71,12 @@ public static class SegmentValidator
 
         var stations = stationRequests
             .Select((station, index) =>
-                ValidateStation(station, FieldRules.ItemKey("stations", index), unitSystem, errors))
+                ValidateStation(station, FieldRules.ItemKey("stations", index), readingUnitSystem, errors))
             .ToList();
 
         var shots = shotRequests
             .Select((shot, index) =>
-                ValidateShot(shot, FieldRules.ItemKey("shots", index), unitSystem, errors))
+                ValidateShot(shot, FieldRules.ItemKey("shots", index), readingUnitSystem, errors))
             .ToList();
 
         if (replacing is not null)

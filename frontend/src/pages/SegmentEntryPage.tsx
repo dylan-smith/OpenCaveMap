@@ -9,7 +9,8 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { Link, useNavigate, useParams } from 'react-router'
-import { describeFetchError } from '../api/projects'
+import { describeFetchError, lengthUnit } from '../api/projects'
+import type { UnitSystem } from '../api/projects'
 import {
   createSegment,
   deleteSegment,
@@ -49,8 +50,11 @@ type DraftShot = {
   review: boolean
 }
 
+// unitSystem is the one the API sent the readings in. It goes back with them unchanged, so the API converts what was
+// typed from the units the screen showed, even if the project's setting has changed since.
 type Draft = {
   number: number
+  unitSystem: UnitSystem
   surveyDate: string
   name: string
   note: string
@@ -103,34 +107,41 @@ function readingText(reading: number | null) {
   return reading === null ? '' : String(reading)
 }
 
-function lengthText(length: number | null) {
-  return length === null ? '' : String(roundLength(length))
+function lengthText(length: number | null, unitSystem: UnitSystem) {
+  return length === null ? '' : String(roundLength(length, unitSystem))
 }
 
 // A depth or distance is shown rounded, so while it still reads as the number shown, the unrounded one the API sent
 // goes back instead. Saving without changing a reading then leaves it exactly as stored.
-function lengthToSend(text: string, saved: number | null) {
+function lengthToSend(
+  text: string,
+  saved: number | null,
+  unitSystem: UnitSystem,
+) {
   const typed = readNumber(text)
-  return saved !== null && typed === roundLength(saved) ? saved : typed
+  return saved !== null && typed === roundLength(saved, unitSystem)
+    ? saved
+    : typed
 }
 
 function toDraft(segment: Segment): Draft {
   return {
     number: segment.number,
+    unitSystem: segment.unitSystem,
     surveyDate: segment.surveyDate ?? '',
     name: segment.name ?? '',
     note: segment.note ?? '',
     stations: segment.stations.map((station) => ({
       key: nextRowKey(),
       id: station.id,
-      depth: lengthText(station.depth),
+      depth: lengthText(station.depth, segment.unitSystem),
       savedDepth: station.depth,
       note: station.note ?? '',
     })),
     shots: segment.shots.map((shot) => ({
       key: nextRowKey(),
       id: shot.id,
-      distance: lengthText(shot.distance),
+      distance: lengthText(shot.distance, segment.unitSystem),
       savedDistance: shot.distance,
       azimuth: readingText(shot.azimuth),
       note: shot.note ?? '',
@@ -186,15 +197,16 @@ function toRequest(draft: Draft): SegmentRequest {
     surveyDate: draft.surveyDate === '' ? null : draft.surveyDate,
     name: draft.name,
     note: draft.note,
+    unitSystem: draft.unitSystem,
     stations: draft.stations.map(({ id, depth, savedDepth, note }) => ({
       id,
-      depth: lengthToSend(depth, savedDepth),
+      depth: lengthToSend(depth, savedDepth, draft.unitSystem),
       note,
     })),
     shots: draft.shots.map(
       ({ id, distance, savedDistance, azimuth, note }) => ({
         id,
-        distance: lengthToSend(distance, savedDistance),
+        distance: lengthToSend(distance, savedDistance, draft.unitSystem),
         azimuth: readNumber(azimuth),
         note,
       }),
@@ -696,6 +708,7 @@ function SegmentEntry({
                     <Box key={station.key}>
                       <StationRow
                         label={stationLabel(draft, index)}
+                        unit={lengthUnit(draft.unitSystem)}
                         station={station}
                         canRemove={draft.stations.length > 2}
                         onInsertAfter={() => insertAfter(station.key)}
@@ -722,6 +735,7 @@ function SegmentEntry({
                       {shot && (
                         <ShotRow
                           label={shotLabel(draft, index)}
+                          unit={lengthUnit(draft.unitSystem)}
                           shot={shot}
                           message={(field) =>
                             message(rowField(shot.key, field))
@@ -801,9 +815,11 @@ function SegmentEntry({
   )
 }
 
-// Every field's accessible name includes the row's label, so a screen reader says which reading it's on.
+// Every field's accessible name includes the row's label, so a screen reader says which reading it's on, and the
+// unit, m or ft, the depth is in.
 function StationRow({
   label,
+  unit,
   station,
   canRemove,
   onInsertAfter,
@@ -815,6 +831,7 @@ function StationRow({
   onNoteKeyDown,
 }: {
   label: string
+  unit: string
   station: DraftStation
   canRemove: boolean
   onInsertAfter: () => void
@@ -857,7 +874,7 @@ function StationRow({
       </Typography>
       <TextField
         size="small"
-        label="Depth (m)"
+        label={`Depth (${unit})`}
         value={station.depth}
         inputRef={inputRef('depth')}
         onKeyDown={(event) => onReadingKeyDown('depth', event)}
@@ -867,7 +884,7 @@ function StationRow({
         sx={{ width: 130 }}
         slotProps={{
           htmlInput: {
-            'aria-label': `${label} depth (m)`,
+            'aria-label': `${label} depth (${unit})`,
             inputMode: 'decimal',
             maxLength: readingMaxLength,
           },
@@ -919,6 +936,7 @@ function StationRow({
 // azimuth are described by the message, so a screen reader reads it on reaching either.
 function ShotRow({
   label,
+  unit,
   shot,
   message,
   onChange,
@@ -928,6 +946,7 @@ function ShotRow({
   onNoteKeyDown,
 }: {
   label: string
+  unit: string
   shot: DraftShot
   message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
@@ -983,7 +1002,7 @@ function ShotRow({
       <TextField
         id={`${id}-distance`}
         size="small"
-        label="Distance (m)"
+        label={`Distance (${unit})`}
         value={shot.distance}
         inputRef={inputRef('distance')}
         onKeyDown={(event) => onReadingKeyDown('distance', event)}
@@ -993,7 +1012,7 @@ function ShotRow({
         sx={{ width: 130 }}
         slotProps={{
           htmlInput: {
-            'aria-label': `${label} distance (m)`,
+            'aria-label': `${label} distance (${unit})`,
             'aria-describedby': describedBy('distance'),
             inputMode: 'decimal',
             maxLength: readingMaxLength,

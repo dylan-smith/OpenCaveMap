@@ -241,6 +241,7 @@ test.describe('Segments', () => {
     const created = await request.post(segmentsUrl, {
       data: {
         surveyDate: '2026-11-21',
+        unitSystem: 'metric',
         stations: [
           { depth: 3, note: 'Line arrow' },
           { depth: 7 },
@@ -320,5 +321,53 @@ test.describe('Segments', () => {
       expect.any(Number),
       before.shots[1].id,
     ])
+  })
+
+  test('switches the project to imperial, adds a segment in feet, and sees it converted to metric and back', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}`)
+    const unitSystem = page.getByRole('group', { name: 'Unit system' })
+    await expect(
+      unitSystem.getByRole('button', { name: 'Metric' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    await unitSystem.getByRole('button', { name: 'Imperial' }).click()
+    await expect(
+      unitSystem.getByRole('button', { name: 'Imperial' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('link', { name: 'Add segment' }).click()
+    await page.getByLabel('Survey date').fill('2026-11-21')
+    await page.getByLabel('Station 1.0 depth (ft)').fill('10')
+    await page.getByLabel('Shot 1.1 distance (ft)').fill('30')
+    await page.getByLabel('Shot 1.1 azimuth (°)').fill('090')
+    await page.getByLabel('Station 1.1 depth (ft)').fill('20')
+    await page.getByRole('button', { name: 'Save segment' }).click()
+
+    const segment = page
+      .getByRole('list', { name: 'Segments' })
+      .getByRole('listitem')
+    await expect(segment).toContainText('2026-11-21 · 2 stations · 30 ft')
+    await segment.getByRole('link').click()
+    await expect(page.getByLabel('Shot 1.1 distance (ft)')).toHaveValue('30')
+    await page.getByRole('link', { name: '← Back to project' }).click()
+
+    // 30 feet is 9.144 metres, and depths of 10 and 20 feet are 3.048 and 6.096.
+    await unitSystem.getByRole('button', { name: 'Metric' }).click()
+    await expect(segment).toContainText('2026-11-21 · 2 stations · 9.14 m')
+    await segment.getByRole('link').click()
+    await expect(page.getByLabel('Station 1.0 depth (m)')).toHaveValue('3.05')
+    await expect(page.getByLabel('Shot 1.1 distance (m)')).toHaveValue('9.14')
+    await expect(page.getByLabel('Shot 1.1 azimuth (°)')).toHaveValue('90')
+    await expect(page.getByLabel('Station 1.1 depth (m)')).toHaveValue('6.1')
+    // Saved untouched in metres, the readings are kept as they were stored.
+    await page.getByRole('button', { name: 'Save segment' }).click()
+
+    await unitSystem.getByRole('button', { name: 'Imperial' }).click()
+    await expect(segment).toContainText('2026-11-21 · 2 stations · 30 ft')
+    await segment.getByRole('link').click()
+    await expect(page.getByLabel('Station 1.0 depth (ft)')).toHaveValue('10')
+    await expect(page.getByLabel('Shot 1.1 distance (ft)')).toHaveValue('30')
+    await expect(page.getByLabel('Station 1.1 depth (ft)')).toHaveValue('20')
   })
 })

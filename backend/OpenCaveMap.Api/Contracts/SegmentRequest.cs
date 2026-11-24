@@ -16,7 +16,7 @@ public class SegmentRequest
 
     /// <summary>
     /// The unit system the depths and distances are in. It's used to convert them even when the project's own setting
-    /// has changed since. Optional for now: without one, they're read as metres.
+    /// has changed since.
     /// </summary>
     public UnitSystem? UnitSystem { get; set; }
 
