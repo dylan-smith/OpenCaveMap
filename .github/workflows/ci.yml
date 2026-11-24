@@ -497,6 +497,17 @@ jobs:
         env:
           BASE_DIR: baseline
 
+      # The SQL server only lets in addresses inside Azure, and GitHub runs some jobs on runners outside it. A runner
+      # the server turns away gets a firewall rule of its own until the steps that use the database are done (see
+      # the script). It comes before the migrations are marked as started, so failing here keeps the database's data.
+      - name: Let this runner through the SQL firewall
+        id: firewall
+        if: steps.current.outputs.current == 'true'
+        run: bash .github/scripts/sql-firewall.sh open
+        env:
+          SQL_RESOURCE_GROUP: ${{ env.PREVIEW_RESOURCE_GROUP }}
+          CONNECTION_STRING: Server=tcp:${{ steps.infra.outputs['sql-server-fqdn'] }},1433;Initial Catalog=${{ env.PREVIEW_DB_NAME }};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;Connection Timeout=120;
+
       # Until the migrations finish, the database isn't marked as matching any scripts (see the check above).
       - name: Mark the migrations as started
         if: steps.current.outputs.current == 'true'
@@ -521,6 +532,15 @@ jobs:
           connection-string: Server=tcp:${{ steps.infra.outputs['sql-server-fqdn'] }},1433;Initial Catalog=${{ env.PREVIEW_DB_NAME }};Authentication=Active Directory Default;Encrypt=True;TrustServerCertificate=False;
           path: .github/scripts/preview-db-user.sql
           arguments: -v AppUserName=${{ env.PREVIEW_APP_NAME }} AppSid=${{ steps.infra.outputs['api-client-id'] }}
+
+      # Nothing after this connects to the database from the runner. Failing to remove the rule only leaves one
+      # address let in, which the script reports, so it doesn't stop the deployment.
+      - name: Shut this runner out of the SQL firewall
+        if: always() && steps.firewall.outcome != 'skipped'
+        continue-on-error: true
+        run: bash .github/scripts/sql-firewall.sh close
+        env:
+          SQL_RESOURCE_GROUP: ${{ env.PREVIEW_RESOURCE_GROUP }}
 
       # The Bicep deployment's app settings restart the site's deployment (SCM) container shortly before this,
       # which can stop the deployment partway (see deploy-backend), so a failed deployment is retried once.
@@ -719,6 +739,17 @@ jobs:
       - name: Install SqlPackage
         run: dotnet tool install --global microsoft.sqlpackage
 
+      # The SQL server only lets in addresses inside Azure, and GitHub runs some jobs on runners outside it. A runner
+      # the server turns away gets a firewall rule of its own until the backup and the migrations are done (see the
+      # script). It comes before the API is paused, so waiting for the rule doesn't add to the downtime, and failing
+      # here changes nothing.
+      - name: Let this runner through the SQL firewall
+        id: firewall
+        run: bash .github/scripts/sql-firewall.sh open
+        env:
+          SQL_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          CONNECTION_STRING: ${{ secrets.AZURE_SQL_CONNECTION_STRING }}
+
       # The pause makes /health return 403, so turn the availability test off while it lasts (see Enable health check).
       - name: Disable health check
         id: disable-health-check
@@ -763,6 +794,15 @@ jobs:
         run: ./backend/database-publish/OpenCaveMap.Database "$CONNECTION_STRING"
         env:
           CONNECTION_STRING: ${{ secrets.AZURE_SQL_CONNECTION_STRING }}
+
+      # Nothing after this connects to the database from the runner. Failing to remove the rule only leaves one
+      # address let in, which the script reports, so it must not stop the deployment: the API is paused here.
+      - name: Shut this runner out of the SQL firewall
+        if: always() && steps.firewall.outcome != 'skipped'
+        continue-on-error: true
+        run: bash .github/scripts/sql-firewall.sh close
+        env:
+          SQL_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
       # Pause API's site changes and restart also restart the deployment (SCM) container, but some time after those
       # calls return, so the restart can land during this deployment and stop it ("Deployment has been stopped due

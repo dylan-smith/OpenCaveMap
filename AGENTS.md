@@ -105,6 +105,10 @@ npm run test:e2e
 - The templates don't manage identities, role assignments or database users. Production's are set
   up manually (see README). Preview web apps' database users are created by the `deploy-preview`
   job (`.github/scripts/preview-db-user.sql`), so don't add manual steps for them.
+- The SQL servers only let in addresses inside Azure, and GitHub runs some jobs on runners outside
+  it. A workflow step that connects to a database from the runner must come between
+  `.github/scripts/sql-firewall.sh open` and `close`, as the migrations do (see the README's
+  "Database Access From Deployments" section).
 - Pushes to `main` deploy to production, so treat changes to `ci.yml` and `infra/` with care.
 
 ## Pull requests
