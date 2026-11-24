@@ -12,6 +12,7 @@ import SignInPage from './auth/SignInPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ProjectsPage from './pages/ProjectsPage'
 import NotFoundPage from './pages/NotFoundPage'
+import SegmentEntryPrototype from './pages/prototype/SegmentEntryPrototype'
 import { trackPageView } from './telemetry'
 
 function signOut() {
@@ -84,6 +85,13 @@ function App() {
         <Routes>
           <Route path="/" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          {/* PROTOTYPE: throwaway route, dev only. */}
+          {import.meta.env.DEV && (
+            <Route
+              path="/prototype/segment-entry"
+              element={<SegmentEntryPrototype />}
+            />
+          )}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       )}
