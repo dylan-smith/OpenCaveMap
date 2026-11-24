@@ -12,7 +12,9 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { describeFetchError } from '../api/projects'
 import {
   createSegment,
+  getSegment,
   getNewSegment,
+  replaceSegment,
   segmentRejectedMessage,
   SegmentRejectedError,
 } from '../api/segments'
@@ -20,14 +22,17 @@ import type { Segment, SegmentErrors, SegmentRequest } from '../api/segments'
 import { trackEvent, trackException } from '../telemetry'
 import NotFoundPage from './NotFoundPage'
 import { parseId } from './parseId'
+import { roundLength } from './readings'
 
 // What the user has typed. Readings are kept as text, and read as numbers when the segment is saved. key identifies a
 // row to React, since rows added here have no id until they're saved. shots[i] runs from stations[i] to
-// stations[i + 1].
+// stations[i + 1]. A saved row also keeps the depth or distance the API sent, which is shown rounded (see
+// lengthToSend), and a row added here has null.
 type DraftStation = {
   key: string
   id: number | null
   depth: string
+  savedDepth: number | null
   note: string
 }
 
@@ -35,6 +40,7 @@ type DraftShot = {
   key: string
   id: number | null
   distance: string
+  savedDistance: number | null
   azimuth: string
   note: string
 }
@@ -56,11 +62,18 @@ function nextRowKey() {
 }
 
 function newStation(): DraftStation {
-  return { key: nextRowKey(), id: null, depth: '', note: '' }
+  return { key: nextRowKey(), id: null, depth: '', savedDepth: null, note: '' }
 }
 
 function newShot(): DraftShot {
-  return { key: nextRowKey(), id: null, distance: '', azimuth: '', note: '' }
+  return {
+    key: nextRowKey(),
+    id: null,
+    distance: '',
+    savedDistance: null,
+    azimuth: '',
+    note: '',
+  }
 }
 
 // A reading is a plain decimal number. Spaces around it and zeros in front of it (045) are fine, and the decimal
@@ -80,8 +93,20 @@ function readNumber(text: string) {
   return plainDecimal.test(trimmed) ? Number(trimmed) : Number.NaN
 }
 
+// An azimuth is shown as it comes, and a depth or distance rounded.
 function readingText(reading: number | null) {
   return reading === null ? '' : String(reading)
+}
+
+function lengthText(length: number | null) {
+  return length === null ? '' : String(roundLength(length))
+}
+
+// A depth or distance is shown rounded, so while it still reads as the number shown, the unrounded one the API sent
+// goes back instead. Saving without changing a reading then leaves it exactly as stored.
+function lengthToSend(text: string, saved: number | null) {
+  const typed = readNumber(text)
+  return saved !== null && typed === roundLength(saved) ? saved : typed
 }
 
 function toDraft(segment: Segment): Draft {
@@ -93,13 +118,15 @@ function toDraft(segment: Segment): Draft {
     stations: segment.stations.map((station) => ({
       key: nextRowKey(),
       id: station.id,
-      depth: readingText(station.depth),
+      depth: lengthText(station.depth),
+      savedDepth: station.depth,
       note: station.note ?? '',
     })),
     shots: segment.shots.map((shot) => ({
       key: nextRowKey(),
       id: shot.id,
-      distance: readingText(shot.distance),
+      distance: lengthText(shot.distance),
+      savedDistance: shot.distance,
       azimuth: readingText(shot.azimuth),
       note: shot.note ?? '',
     })),
@@ -112,17 +139,19 @@ function toRequest(draft: Draft): SegmentRequest {
     surveyDate: draft.surveyDate === '' ? null : draft.surveyDate,
     name: draft.name,
     note: draft.note,
-    stations: draft.stations.map(({ id, depth, note }) => ({
+    stations: draft.stations.map(({ id, depth, savedDepth, note }) => ({
       id,
-      depth: readNumber(depth),
+      depth: lengthToSend(depth, savedDepth),
       note,
     })),
-    shots: draft.shots.map(({ id, distance, azimuth, note }) => ({
-      id,
-      distance: readNumber(distance),
-      azimuth: readNumber(azimuth),
-      note,
-    })),
+    shots: draft.shots.map(
+      ({ id, distance, savedDistance, azimuth, note }) => ({
+        id,
+        distance: lengthToSend(distance, savedDistance),
+        azimuth: readNumber(azimuth),
+        note,
+      }),
+    ),
   }
 }
 
@@ -231,7 +260,14 @@ const dotSize = 16
 const labelWidth = 120
 const shotIndent = 32
 
-function SegmentEntry({ projectId }: { projectId: number }) {
+// Enters a new segment when segmentId is null, and otherwise corrects that saved segment.
+function SegmentEntry({
+  projectId,
+  segmentId,
+}: {
+  projectId: number
+  segmentId: number | null
+}) {
   const navigate = useNavigate()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [notFound, setNotFound] = useState(false)
@@ -258,7 +294,10 @@ function SegmentEntry({ projectId }: { projectId: number }) {
 
     async function load() {
       try {
-        const segment = await getNewSegment(projectId)
+        const segment =
+          segmentId === null
+            ? await getNewSegment(projectId)
+            : await getSegment(projectId, segmentId)
         if (!current) {
           return
         }
@@ -271,7 +310,9 @@ function SegmentEntry({ projectId }: { projectId: number }) {
         if (!current) {
           return
         }
-        trackException(error, { operation: 'loadNewSegment' })
+        trackException(error, {
+          operation: segmentId === null ? 'loadNewSegment' : 'loadSegment',
+        })
         setLoadError(describeFetchError(error, 'Unable to load the segment.'))
       } finally {
         if (current) {
@@ -285,11 +326,17 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     return () => {
       current = false
     }
-  }, [projectId])
+  }, [projectId, segmentId])
 
   if (notFound) {
     return (
-      <NotFoundPage message="That project doesn't exist. It may have been deleted." />
+      <NotFoundPage
+        message={
+          segmentId === null
+            ? "That project doesn't exist. It may have been deleted."
+            : "That segment doesn't exist. It may have been deleted."
+        }
+      />
     )
   }
 
@@ -438,8 +485,13 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     setMessages(null)
 
     try {
-      await createSegment(projectId, toRequest(sent))
-      trackEvent('SegmentCreated')
+      if (segmentId === null) {
+        await createSegment(projectId, toRequest(sent))
+        trackEvent('SegmentCreated')
+      } else {
+        await replaceSegment(projectId, segmentId, toRequest(sent))
+        trackEvent('SegmentUpdated')
+      }
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       // A rejected segment is the user's to fix, not a failure to report.
@@ -793,13 +845,26 @@ function ShotRow({
   )
 }
 
+// At /projects/:id/segments/new for a new segment, and /projects/:id/segments/:segmentId for a saved one.
 function SegmentEntryPage() {
-  const projectId = parseId(useParams().id)
-  if (projectId === null) {
+  const params = useParams()
+  const projectId = parseId(params.id)
+  const segmentId =
+    params.segmentId === undefined ? null : parseId(params.segmentId)
+  if (
+    projectId === null ||
+    (params.segmentId !== undefined && segmentId === null)
+  ) {
     return <NotFoundPage />
   }
-  // Keyed by id so moving between two projects' entry screens starts each one with fresh state.
-  return <SegmentEntry key={projectId} projectId={projectId} />
+  // Keyed by the address so moving between two entry screens starts each one with fresh state.
+  return (
+    <SegmentEntry
+      key={`${projectId}/${segmentId ?? 'new'}`}
+      projectId={projectId}
+      segmentId={segmentId}
+    />
+  )
 }
 
 export default SegmentEntryPage
