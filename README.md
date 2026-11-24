@@ -315,6 +315,8 @@ Both SQL servers' firewalls only let in addresses inside Azure (the `AllowAllWin
 
 So before those steps, `.github/scripts/sql-firewall.sh` checks whether the runner can connect. If the server turns it away, the script adds a firewall rule for the runner's address, named `github-<job>-<run ID>-<attempt>`, waits for it to take effect, and removes it when the steps are done. A runner inside Azure connects straight away and nothing is changed. The deploy identities' **Contributor** role covers changing the rules.
 
+Signing in is the other thing that differs on those runners. The Database CLI signs in with the job's `az` login wherever it runs, so it also runs the preview's database user script (`--run-script`). `sqlcmd`, which `azure/sql-action` uses, doesn't: it first asks the host's metadata service for a managed identity token, and on a runner outside Azure that request is refused and `sqlcmd` gives up.
+
 A job that's killed before it removes its rule leaves the rule behind. It only lets in that one address, and the server still needs an Entra sign-in. Delete it in the portal or with `az sql server firewall-rule delete`.
 
 ### Required GitHub Variables
