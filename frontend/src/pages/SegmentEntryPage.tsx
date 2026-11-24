@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, RefCallback, SubmitEvent } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -44,6 +44,9 @@ type DraftShot = {
   savedDistance: number | null
   azimuth: string
   note: string
+  // Set when inserting or removing a station makes this shot join different stations, so its distance and azimuth
+  // need checking. It belongs to this editing session and is never saved.
+  review: boolean
 }
 
 type Draft = {
@@ -74,6 +77,7 @@ function newShot(): DraftShot {
     savedDistance: null,
     azimuth: '',
     note: '',
+    review: false,
   }
 }
 
@@ -130,8 +134,50 @@ function toDraft(segment: Segment): Draft {
       savedDistance: shot.distance,
       azimuth: readingText(shot.azimuth),
       note: shot.note ?? '',
+      review: false,
     })),
   }
+}
+
+// Stations and shots are inserted and removed in pairs so the segment has no gap: a station with the shot arriving at
+// it, or for the first station, the shot leaving it. The one shot that then joins different stations is flagged.
+function insertStationAfter(
+  draft: Draft,
+  index: number,
+  station: DraftStation,
+  shot: DraftShot,
+): Draft {
+  return {
+    ...draft,
+    stations: draft.stations.toSpliced(index + 1, 0, station),
+    // The shot that used to leave this station now leaves the new one.
+    shots: flagShot(draft.shots, index).toSpliced(index, 0, shot),
+  }
+}
+
+function removeStationAt(draft: Draft, index: number): Draft {
+  const stations = draft.stations.toSpliced(index, 1)
+  if (index === 0) {
+    return { ...draft, stations, shots: draft.shots.toSpliced(0, 1) }
+  }
+  // The shot that left the removed station now leaves the one before it.
+  return {
+    ...draft,
+    stations,
+    shots: flagShot(draft.shots, index).toSpliced(index - 1, 1),
+  }
+}
+
+// Flags the shot at index for review, if there is one.
+function flagShot(shots: DraftShot[], index: number) {
+  return shots.map((shot, i) =>
+    i === index ? { ...shot, review: true } : shot,
+  )
+}
+
+// The shot removed along with the station at index.
+function shotRemovedWith(draft: Draft, index: number) {
+  return draft.shots.at(index === 0 ? 0 : index - 1)
 }
 
 // A reading that isn't a number (see unreadableReadings) is written to JSON as null, like one that's missing.
@@ -231,6 +277,12 @@ function fieldsToFix(count: number) {
   return count === 1 ? '1 field needs fixing.' : `${count} fields need fixing.`
 }
 
+function shotsToCheck(count: number) {
+  return count === 1
+    ? '1 shot needs checking.'
+    : `${count} shots need checking.`
+}
+
 // A label is the segment's number and the row's position, joined by a dot. Stations count from 0 and shots from 1.
 function stationLabel(draft: Draft, index: number) {
   return `Station ${draft.number}.${index}`
@@ -279,6 +331,8 @@ function SegmentEntry({
   const [saveError, setSaveError] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [messages, setMessages] = useState<Messages | null>(null)
+  // Set when a save is refused because shots are flagged. Its message shows until none are.
+  const [reviewRefused, setReviewRefused] = useState(false)
   // The inputs of the rows' fields, keyed like their messages, so the keyboard can move between them.
   const inputs = useRef(new Map<string, HTMLInputElement>())
   // A field to move to once the render that adds it has happened.
@@ -382,13 +436,16 @@ function SegmentEntry({
     clearMessages(Object.keys(changes).map((field) => rowField(key, field)))
   }
 
+  // Editing a flagged shot's distance or azimuth deals with the flag, as confirming it does.
   function updateShot(key: string, changes: Partial<DraftShot>) {
+    const reviewed =
+      'distance' in changes || 'azimuth' in changes ? { review: false } : {}
     setDraft(
       (previous) =>
         previous && {
           ...previous,
           shots: previous.shots.map((shot) =>
-            shot.key === key ? { ...shot, ...changes } : shot,
+            shot.key === key ? { ...shot, ...changes, ...reviewed } : shot,
           ),
         },
     )
@@ -412,6 +469,39 @@ function SegmentEntry({
         },
     )
     return shot
+  }
+
+  // Moves to the new shot's distance, where the surveyor types next.
+  function insertAfter(stationKey: string) {
+    const station = newStation()
+    const shot = newShot()
+    setDraft((previous) => {
+      if (previous === null) {
+        return previous
+      }
+      const index = previous.stations.findIndex((row) => row.key === stationKey)
+      return insertStationAfter(previous, index, station, shot)
+    })
+    setReviewRefused(false)
+    pendingFocus.current = rowField(shot.key, 'distance')
+  }
+
+  // The removed rows' messages go with them. The control that had focus goes too, so focus moves to the depth of
+  // the station before the removed one, or of the new first station.
+  function removeStation(stationKey: string) {
+    if (draft === null || draft.stations.length <= 2) {
+      return
+    }
+    const index = draft.stations.findIndex((row) => row.key === stationKey)
+    const shot = shotRemovedWith(draft, index)
+    setDraft((previous) => previous && removeStationAt(previous, index))
+    clearMessages([
+      ...stationFields.map((field) => rowField(stationKey, field)),
+      ...(shot ? shotFields.map((field) => rowField(shot.key, field)) : []),
+    ])
+    setReviewRefused(false)
+    const focusStation = draft.stations[index === 0 ? 1 : index - 1]
+    pendingFocus.current = rowField(focusStation.key, 'depth')
   }
 
   function inputRef(field: string): RefCallback<HTMLInputElement> {
@@ -474,6 +564,12 @@ function SegmentEntry({
       return
     }
 
+    // Whether a flagged shot is right is known only to this editing session, so the screen checks this, not the API.
+    if (draft.shots.some((shot) => shot.review)) {
+      setReviewRefused(true)
+      return
+    }
+
     // A reading that isn't a number can't be sent, so it gets its message here instead of from the API.
     const unreadable = unreadableReadings(draft)
     if (unreadable !== null) {
@@ -525,6 +621,7 @@ function SegmentEntry({
   }
 
   const busy = saving || deleting
+  const flagged = draft?.shots.filter((shot) => shot.review).length ?? 0
 
   return (
     <Stack spacing={2}>
@@ -600,6 +697,9 @@ function SegmentEntry({
                       <StationRow
                         label={stationLabel(draft, index)}
                         station={station}
+                        canRemove={draft.stations.length > 2}
+                        onInsertAfter={() => insertAfter(station.key)}
+                        onRemove={() => removeStation(station.key)}
                         message={(field) =>
                           message(rowField(station.key, field))
                         }
@@ -627,6 +727,9 @@ function SegmentEntry({
                             message(rowField(shot.key, field))
                           }
                           onChange={(changes) => updateShot(shot.key, changes)}
+                          onConfirm={() =>
+                            updateShot(shot.key, { review: false })
+                          }
                           inputRef={(field) =>
                             inputRef(rowField(shot.key, field))
                           }
@@ -665,6 +768,12 @@ function SegmentEntry({
                   )}
                 </Alert>
               )}
+              {reviewRefused && flagged > 0 && (
+                <Alert severity="error">
+                  This segment can&apos;t be saved until its flagged shots are
+                  checked. {shotsToCheck(flagged)}
+                </Alert>
+              )}
               {saveError && <Alert severity="error">{saveError}</Alert>}
               {deleteError && <Alert severity="error">{deleteError}</Alert>}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -696,6 +805,9 @@ function SegmentEntry({
 function StationRow({
   label,
   station,
+  canRemove,
+  onInsertAfter,
+  onRemove,
   message,
   onChange,
   inputRef,
@@ -704,6 +816,9 @@ function StationRow({
 }: {
   label: string
   station: DraftStation
+  canRemove: boolean
+  onInsertAfter: () => void
+  onRemove: () => void
   message: (field: 'depth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftStation>) => void
   inputRef: (field: 'depth' | 'note') => RefCallback<HTMLInputElement>
@@ -773,15 +888,41 @@ function StationRow({
           htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
         }}
       />
+      {/* Out of the Tab order, like the notes, so Tab keeps to the readings. Each name says which station it acts
+          on, since every station has a pair. */}
+      <Box sx={{ display: 'flex', mt: 0.5 }}>
+        <Button
+          size="small"
+          tabIndex={-1}
+          aria-label={`Insert station after ${label}`}
+          onClick={onInsertAfter}
+          sx={{ whiteSpace: 'nowrap' }}
+        >
+          Insert station
+        </Button>
+        <Button
+          size="small"
+          color="error"
+          tabIndex={-1}
+          aria-label={`Remove ${label}`}
+          disabled={!canRemove}
+          onClick={onRemove}
+        >
+          Remove
+        </Button>
+      </Box>
     </Box>
   )
 }
 
+// A flagged shot is marked with a warning border, and also in words, so it doesn't rely on colour. Its distance and
+// azimuth are described by the message, so a screen reader reads it on reaching either.
 function ShotRow({
   label,
   shot,
   message,
   onChange,
+  onConfirm,
   inputRef,
   onReadingKeyDown,
   onNoteKeyDown,
@@ -790,6 +931,7 @@ function ShotRow({
   shot: DraftShot
   message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
+  onConfirm: () => void
   inputRef: (
     field: 'distance' | 'azimuth' | 'note',
   ) => RefCallback<HTMLInputElement>
@@ -799,14 +941,28 @@ function ShotRow({
   ) => void
   onNoteKeyDown: (event: KeyboardEvent) => void
 }) {
+  const id = useId()
+  const reviewId = `${id}-review`
+  // A flagged shot's line is wider, still centred under the stations' dots, with the fields where they were.
+  const lineWidth = shot.review ? 4 : 2
+
+  // MUI describes a field by its message, and this replaces that, so the message's id is included here.
+  function describedBy(field: 'distance' | 'azimuth') {
+    const ids = [
+      message(field) ? `${id}-${field}-helper-text` : null,
+      shot.review ? reviewId : null,
+    ].filter((value) => value !== null)
+    return ids.length > 0 ? ids.join(' ') : undefined
+  }
+
   return (
     <Box
       sx={{
-        ml: `${dotSize / 2 - 1}px`,
-        pl: `${shotIndent - dotSize / 2 - 1}px`,
+        ml: `${dotSize / 2 - lineWidth / 2}px`,
+        pl: `${shotIndent - dotSize / 2 - lineWidth / 2}px`,
         py: 1.5,
-        borderLeft: '2px solid',
-        borderColor: 'divider',
+        borderLeft: `${lineWidth}px solid`,
+        borderColor: shot.review ? 'warning.main' : 'divider',
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'flex-start',
@@ -825,6 +981,7 @@ function ShotRow({
         {label}
       </Typography>
       <TextField
+        id={`${id}-distance`}
         size="small"
         label="Distance (m)"
         value={shot.distance}
@@ -837,12 +994,14 @@ function ShotRow({
         slotProps={{
           htmlInput: {
             'aria-label': `${label} distance (m)`,
+            'aria-describedby': describedBy('distance'),
             inputMode: 'decimal',
             maxLength: readingMaxLength,
           },
         }}
       />
       <TextField
+        id={`${id}-azimuth`}
         size="small"
         label="Azimuth (°)"
         value={shot.azimuth}
@@ -855,6 +1014,7 @@ function ShotRow({
         slotProps={{
           htmlInput: {
             'aria-label': `${label} azimuth (°)`,
+            'aria-describedby': describedBy('azimuth'),
             inputMode: 'decimal',
             maxLength: readingMaxLength,
           },
@@ -875,6 +1035,33 @@ function ShotRow({
           htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
         }}
       />
+      {shot.review && (
+        <Box
+          sx={{
+            flexBasis: '100%',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            columnGap: 1,
+          }}
+        >
+          <Typography id={reviewId} variant="body2">
+            <Box component="span" aria-hidden sx={{ color: 'warning.main' }}>
+              ⚠{' '}
+            </Box>
+            <strong>Check this shot:</strong> it now joins different stations,
+            so its distance and azimuth need checking.
+          </Typography>
+          {/* In the Tab order after the azimuth, so the keyboard can confirm the shot as it passes. */}
+          <Button
+            size="small"
+            aria-label={`${label} distance and azimuth are right`}
+            onClick={onConfirm}
+          >
+            Distance and azimuth are right
+          </Button>
+        </Box>
+      )}
     </Box>
   )
 }
