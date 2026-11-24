@@ -170,6 +170,13 @@ async function saveSegment(
     const problem = (await response.json()) as ValidationProblem
     throw new SegmentRejectedError(problem.errors ?? {})
   }
+  // The user is signed out by now. The screen keeps their entries until they sign in again, then shows this.
+  if (response.status === 401) {
+    throw new ApiError(
+      401,
+      'You were signed out before the segment could be saved. Save it again.',
+    )
+  }
   if (!response.ok) {
     throw new Error('Unable to save segment.')
   }

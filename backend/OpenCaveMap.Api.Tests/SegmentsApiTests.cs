@@ -153,6 +153,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
     [InlineData("stations[1].depth", "1,000", "Depth must be a number, such as 12.5.")]
     [InlineData("stations[1].depth", "12,5", "Depth must be a number, such as 12.5.")]
     [InlineData("stations[1].depth", "1e3", "Depth must be a number, such as 12.5.")]
+    [InlineData("stations[1].depth", "+5", "Depth must be a number, such as 12.5.")]
     [InlineData("stations[1].depth", "-0.5", "Depth must be zero or more.")]
     [InlineData("stations[1].depth", "100000", "Depth must be less than 100,000 m.")]
     [InlineData("stations[1].depth", "99999.9999999", "Depth must be less than 100,000 m.")]

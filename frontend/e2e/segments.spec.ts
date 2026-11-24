@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures'
+import { e2eUserName, expect, test } from './fixtures'
 
 // The backend started by playwright.config.ts.
 const projectsApiUrl = 'http://localhost:5269/api/projects'
@@ -192,6 +192,42 @@ test.describe('Segments', () => {
     await dialog.dismiss()
     expect(page.isClosed()).toBe(false)
     await expect(page.getByLabel('Station 1.0 depth (m)')).toHaveValue('3')
+  })
+
+  test('keeps what was typed when the sign-in expires on save, and saves it after signing in again', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}/segments/new`)
+    await page.getByLabel('Survey date').fill('2026-11-21')
+    await page.getByLabel('Station 1.0 depth (m)').fill('3')
+    await page.getByLabel('Shot 1.1 distance (m)').fill('12.5')
+    await page.getByLabel('Shot 1.1 azimuth (°)').fill('45')
+    await page.getByLabel('Station 1.1 depth (m)').fill('7')
+    // The API refuses the first save as if the sign-in had expired.
+    await page.route(
+      `**/api/projects/${projectId}/segments`,
+      (route) => route.fulfill({ status: 401 }),
+      { times: 1 },
+    )
+
+    await page.getByRole('button', { name: 'Save segment' }).click()
+    await expect(
+      page.getByRole('heading', { level: 2, name: 'Sign in' }),
+    ).toBeVisible()
+    await page.getByRole('textbox', { name: 'Name' }).fill(e2eUserName)
+    await page.getByRole('button', { name: 'Sign in as test user' }).click()
+
+    await expect(
+      page.getByText(
+        'You were signed out before the segment could be saved. Save it again.',
+      ),
+    ).toBeVisible()
+    await expect(page.getByLabel('Station 1.0 depth (m)')).toHaveValue('3')
+    await page.getByRole('button', { name: 'Save segment' }).click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+    await expect(
+      page.getByRole('list', { name: 'Segments' }).getByRole('listitem'),
+    ).toContainText('2026-11-21 · 2 stations · 12.5 m')
   })
 
   test('adds a segment, deletes it and sees it gone, and the next segment gets a new number', async ({

@@ -1,20 +1,14 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { KeyboardEvent, RefCallback, SubmitEvent } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { Link, useBlocker, useNavigate, useParams } from 'react-router'
-import type { Blocker } from 'react-router'
 import { describeFetchError, lengthUnit } from '../api/projects'
 import type { UnitSystem } from '../api/projects'
 import {
@@ -28,8 +22,10 @@ import {
 } from '../api/segments'
 import type { Segment, SegmentErrors, SegmentRequest } from '../api/segments'
 import { trackEvent, trackException } from '../telemetry'
+import LeaveDialog from './LeaveDialog'
 import NotFoundPage from './NotFoundPage'
 import { parseId } from './parseId'
+import { setUnsavedEntries } from './unsavedEntries'
 
 // What the user has typed, kept as text until the API parses it. key identifies a row to React, since rows added
 // here have no id until they're saved. shots[i] runs from stations[i] to stations[i + 1].
@@ -361,6 +357,14 @@ function SegmentEntry({
     window.addEventListener('beforeunload', warn)
     return () => {
       window.removeEventListener('beforeunload', warn)
+    }
+  }, [changed])
+
+  // Lets App keep the screen through a lost sign-in, and ask before signing out.
+  useEffect(() => {
+    setUnsavedEntries(changed)
+    return () => {
+      setUnsavedEntries(false)
     }
   }, [changed])
 
@@ -768,45 +772,14 @@ function SegmentEntry({
           </Paper>
         )
       )}
-      <LeaveDialog blocker={blocker} />
+      {/* Stay cancels the navigation, which also undoes the browser's back or forward button, so the address and the
+          entries stay as they were. */}
+      <LeaveDialog
+        open={blocker.state === 'blocked'}
+        onStay={() => blocker.reset?.()}
+        onLeave={() => blocker.proceed?.()}
+      />
     </Stack>
-  )
-}
-
-// Asks before leaving with unsaved entries. Stay cancels the navigation, which also undoes the browser's back or
-// forward button, so the address and the entries stay as they were. Focus starts on Stay, the choice that loses
-// nothing, and Escape stays too.
-function LeaveDialog({ blocker }: { blocker: Blocker }) {
-  const id = useId()
-  const stay = () => blocker.reset?.()
-  // The dialog's contents mount each time it opens, so this runs once per opening. Stable, so a re-render while it's
-  // open doesn't take focus back from Leave.
-  const focusStay = useCallback((button: HTMLButtonElement | null) => {
-    button?.focus()
-  }, [])
-  return (
-    <Dialog
-      open={blocker.state === 'blocked'}
-      onClose={stay}
-      aria-labelledby={`${id}-title`}
-      aria-describedby={`${id}-description`}
-    >
-      <DialogTitle id={`${id}-title`}>Leave without saving?</DialogTitle>
-      <DialogContent>
-        <DialogContentText id={`${id}-description`}>
-          Your entries in this segment haven&apos;t been saved. If you leave,
-          they&apos;ll be lost.
-        </DialogContentText>
-      </DialogContent>
-      <DialogActions>
-        <Button ref={focusStay} onClick={stay}>
-          Stay
-        </Button>
-        <Button color="error" onClick={() => blocker.proceed?.()}>
-          Leave
-        </Button>
-      </DialogActions>
-    </Dialog>
   )
 }
 

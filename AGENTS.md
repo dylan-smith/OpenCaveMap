@@ -5,8 +5,8 @@ See [README.md](README.md) for full setup, deployment and Azure details.
 
 ## Project overview
 
-OpenCaveMap is a cave mapping app. So far each user keeps projects (caves), and enters the survey segments
-in each one: stations with depths, joined by shots with distances and azimuths. See `GLOSSARY.md`.
+OpenCaveMap is a cave mapping app. So far each user keeps projects, one for each cave, and enters the
+survey segments in each one: stations with depths, joined by shots with distances and azimuths. See `GLOSSARY.md`.
 
 - `backend/OpenCaveMap.Api`: ASP.NET Core Web API (.NET 10) with EF Core, SQL Server and controllers.
   OpenAPI is served at `/openapi/v1.json` and Scalar at `/scalar` in every environment.

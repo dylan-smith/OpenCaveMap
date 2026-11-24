@@ -253,7 +253,8 @@ public static partial class SegmentInput
     }
 
     // A reading is a plain decimal number: surrounding spaces, leading zeros and a dot as the decimal separator are
-    // fine, but thousands separators and exponents aren't. A sign is allowed so that "-2" gets the range message.
+    // fine, but plus signs, thousands separators and exponents aren't. A minus sign is allowed so that "-2" gets the
+    // range message.
     private static bool TryReadNumber(string? text, string key, string reading, ModelStateDictionary errors, out decimal value)
     {
         value = 0;
@@ -281,6 +282,6 @@ public static partial class SegmentInput
         return true;
     }
 
-    [GeneratedRegex(@"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^-?([0-9]+(\.[0-9]*)?|\.[0-9]+)$", RegexOptions.CultureInvariant)]
     private static partial Regex PlainDecimal();
 }
