@@ -1,4 +1,5 @@
 import { act, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSession } from '../auth/session'
 import {
@@ -58,6 +59,25 @@ describe('project page segments', () => {
     expect(
       await screen.findByRole('link', { name: 'Add segment' }),
     ).toHaveAttribute('href', '/projects/7/segments/new')
+  })
+
+  it('opens a segment from its row in the list', async () => {
+    const user = userEvent.setup()
+    mockApi()
+    renderAt('/projects/7')
+    const list = await screen.findByRole('list', { name: 'Segments' })
+
+    const row = within(list).getByRole('link', { name: /Segment 3/ })
+    expect(row).toHaveAttribute('href', '/projects/7/segments/12')
+    expect(
+      within(list).getByRole('link', { name: /Segment 1/ }),
+    ).toHaveAttribute('href', '/projects/7/segments/10')
+    await user.click(row)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Segment 3' }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Station 3.1 depth (m)')).toHaveValue('12.35')
   })
 
   it('shows a message when the segments cannot be loaded', async () => {

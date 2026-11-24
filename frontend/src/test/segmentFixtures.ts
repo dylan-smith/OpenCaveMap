@@ -40,23 +40,59 @@ export function blankSegment(surveyDate: string | null = '2026-11-21') {
   }
 }
 
-// A fake segments API for project 7. A POST gets the handler's response, or 201 with an empty body by default.
+// What the API returns for saved segment 12, number 3 in the list: three stations and two shots. Two readings have
+// more decimals than are shown.
+export function savedSegment() {
+  return {
+    id: 12,
+    number: 3,
+    surveyDate: '2026-11-21',
+    name: 'Side passage',
+    note: 'Silty',
+    stations: [
+      { id: 101, depth: 3, note: 'Line arrow' },
+      { id: 102, depth: 12.345, note: null },
+      { id: 103, depth: 7, note: null },
+    ],
+    shots: [
+      { id: 201, distance: 30, azimuth: 45, note: null },
+      {
+        id: 202,
+        distance: 8.125,
+        azimuth: 359.5,
+        note: 'Restriction',
+      },
+    ],
+  }
+}
+
+// A fake segments API for project 7. A POST or PUT gets the handler's response, or a saved segment by default.
 export function mockApi({
   segments = savedSegments,
   blank = blankSegment(),
+  saved = savedSegment(),
   onCreate = () => Promise.resolve(jsonResponse({}, 201)),
+  onReplace = () => Promise.resolve(jsonResponse(savedSegment())),
 }: {
   segments?: unknown[]
   blank?: unknown
+  saved?: unknown
   onCreate?: (body: unknown) => Promise<Response>
+  onReplace?: (body: unknown, url: string) => Promise<Response>
 } = {}) {
   return mockFetch((url, init) => {
     // The API client always sends JSON text.
     if (init?.method === 'POST') {
       return onCreate(JSON.parse(init.body as string))
     }
+    if (init?.method === 'PUT') {
+      return onReplace(JSON.parse(init.body as string), url)
+    }
     if (url.endsWith('/api/projects/7/segments/new')) {
       return Promise.resolve(jsonResponse(blank))
+    }
+    if (url.endsWith('/api/projects/7/segments/12')) {
+      return Promise.resolve(jsonResponse(saved))
     }
     if (url.endsWith('/api/projects/7/segments')) {
       return Promise.resolve(jsonResponse(segments))

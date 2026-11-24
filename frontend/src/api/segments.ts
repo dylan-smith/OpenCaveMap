@@ -104,14 +104,47 @@ export async function getNewSegment(
   return (await response.json()) as Segment
 }
 
-// A 400 means the API rejected something the user typed, so it's thrown with the API's messages for the screen to
-// place.
-export async function createSegment(
+// A saved segment. Returns null when there's no such segment in a project of this user's.
+export async function getSegment(
+  projectId: number,
+  segmentId: number,
+): Promise<Segment | null> {
+  const response = await apiFetch(`${segmentsUrl(projectId)}/${segmentId}`)
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw new Error('Unable to load the segment.')
+  }
+  return (await response.json()) as Segment
+}
+
+export function createSegment(
   projectId: number,
   segment: SegmentRequest,
 ): Promise<Segment> {
-  const response = await apiFetch(segmentsUrl(projectId), {
-    method: 'POST',
+  return saveSegment(segmentsUrl(projectId), 'POST', segment)
+}
+
+// Replaces the whole saved segment. Rows with an id update that station or shot, rows without one are new, and saved
+// rows left out are removed.
+export function replaceSegment(
+  projectId: number,
+  segmentId: number,
+  segment: SegmentRequest,
+): Promise<Segment> {
+  return saveSegment(`${segmentsUrl(projectId)}/${segmentId}`, 'PUT', segment)
+}
+
+// A 400 means the API rejected something the user typed, so it's thrown with the API's messages for the screen to
+// place.
+async function saveSegment(
+  url: string,
+  method: 'POST' | 'PUT',
+  segment: SegmentRequest,
+): Promise<Segment> {
+  const response = await apiFetch(url, {
+    method,
     headers: {
       'Content-Type': 'application/json',
     },
