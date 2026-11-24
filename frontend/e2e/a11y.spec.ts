@@ -56,6 +56,7 @@ test.describe('Accessibility', () => {
       const segment = await request.post(`${projectsApiUrl}/${id}/segments`, {
         data: {
           surveyDate: '2026-11-21',
+          unitSystem: 'metric',
           name: 'Main line',
           stations: [{ depth: '3' }, { depth: '7' }],
           shots: [{ distance: '12.5', azimuth: '45' }],

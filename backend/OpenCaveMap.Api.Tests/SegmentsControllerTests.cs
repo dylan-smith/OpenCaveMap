@@ -56,10 +56,42 @@ public class SegmentsControllerTests
         Assert.Equal([3m, 12.35m], stored.Stations.OrderBy(station => station.Position).Select(station => station.Depth));
     }
 
-    private static async Task<(SegmentsController Controller, int ProjectId, SegmentResponse Segment)> CreateSegmentAsync(
-        OpenCaveMapDbContext dbContext, string depth)
+    // Six decimal places are enough for any reading typed in feet with up to two decimals to be stored exactly.
+    [Theory]
+    [InlineData("30", "9.144")]
+    [InlineData("12.34", "3.761232")]
+    [InlineData("0.01", "0.003048")]
+    [InlineData("328083.98", "99999.997104")]
+    public async Task Create_StoresADepthTypedInFeet_ExactlyInMetres(string typed, string metres)
     {
-        var project = new Project { Name = "Cave" };
+        await using var dbContext = TestDb.Create();
+
+        var (_, _, segment) = await CreateSegmentAsync(dbContext, depth: typed, unitSystem: UnitSystem.Imperial);
+
+        Assert.Equal(decimal.Parse(metres, System.Globalization.CultureInfo.InvariantCulture), await StoredDepthAsync(dbContext, segment.Stations[1].Id!.Value));
+    }
+
+    [Fact]
+    public async Task Replace_KeepsAStoredDepth_WhenItIsSentBackAsShownInTheOtherUnitSystem()
+    {
+        await using var dbContext = TestDb.Create();
+        var (controller, projectId, segment) = await CreateSegmentAsync(dbContext, depth: "12.3");
+        (await dbContext.Projects.SingleAsync()).UnitSystem = UnitSystem.Imperial;
+        await dbContext.SaveChangesAsync();
+        var shown = await controller.GetById(projectId, segment.Id!.Value);
+        var inFeet = Assert.IsType<SegmentResponse>(Assert.IsType<OkObjectResult>(shown.Result).Value);
+        Assert.Equal("40.4", inFeet.Stations[1].Depth);
+
+        var result = await controller.Replace(projectId, segment.Id!.Value, Resend(inFeet, depth: "40.4"));
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal(12.3m, await StoredDepthAsync(dbContext, segment.Stations[1].Id!.Value));
+    }
+
+    private static async Task<(SegmentsController Controller, int ProjectId, SegmentResponse Segment)> CreateSegmentAsync(
+        OpenCaveMapDbContext dbContext, string depth, UnitSystem unitSystem = UnitSystem.Metric)
+    {
+        var project = new Project { Name = "Cave", UnitSystem = unitSystem };
         dbContext.Projects.Add(project);
         await dbContext.SaveChangesAsync();
 
@@ -67,6 +99,7 @@ public class SegmentsControllerTests
         var result = await controller.Create(project.Id, new SegmentRequest
         {
             SurveyDate = "2026-11-21",
+            UnitSystem = Text(unitSystem),
             Stations = [new StationRequest { Depth = "3" }, new StationRequest { Depth = depth }],
             Shots = [new ShotRequest { Distance = "30", Azimuth = "45" }],
         });
@@ -81,6 +114,7 @@ public class SegmentsControllerTests
         return new SegmentRequest
         {
             SurveyDate = segment.SurveyDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+            UnitSystem = Text(segment.UnitSystem),
             Stations = [.. segment.Stations.Select((station, index) => new StationRequest
             {
                 Id = station.Id,
@@ -95,6 +129,12 @@ public class SegmentsControllerTests
                 Note = shot.Note,
             })],
         };
+    }
+
+    // As it travels in JSON.
+    private static string Text(UnitSystem unitSystem)
+    {
+        return unitSystem == UnitSystem.Imperial ? "imperial" : "metric";
     }
 
     private static async Task<decimal> StoredDepthAsync(OpenCaveMapDbContext dbContext, int stationId)

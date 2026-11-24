@@ -1,8 +1,9 @@
 import { apiBaseUrl } from '../config'
 import { apiFetch } from './client'
 import { ApiError } from './projects'
+import type { UnitSystem } from './projects'
 
-// A row in a project's list of segments. totalLength is display text in metres.
+// A row in a project's list of segments. totalLength is display text in unitSystem, the project's.
 export type SegmentSummary = {
   id: number
   number: number
@@ -10,16 +11,18 @@ export type SegmentSummary = {
   surveyDate: string
   stationCount: number
   totalLength: string
+  unitSystem: UnitSystem
 }
 
-// A segment as the entry screen shows it: a saved one, or a blank new one without ids. Readings are display text
-// (metres and degrees), and the survey date is YYYY-MM-DD.
+// A segment as the entry screen shows it: a saved one, or a blank new one without ids. Readings are display text,
+// depths and distances in unitSystem and azimuths in degrees, and the survey date is YYYY-MM-DD.
 export type Segment = {
   id: number | null
   number: number
   surveyDate: string | null
   name: string | null
   note: string | null
+  unitSystem: UnitSystem
   stations: Station[]
   shots: Shot[]
 }
@@ -39,11 +42,13 @@ export type Shot = {
   note: string | null
 }
 
-// Exactly what the user typed. The API trims, parses and validates it.
+// Exactly what the user typed. The API trims, parses and validates it, and converts the depths and distances from
+// unitSystem, which is the one the segment was shown in.
 export type SegmentRequest = {
   surveyDate: string
   name: string
   note: string
+  unitSystem: UnitSystem
   stations: { id: number | null; depth: string; note: string }[]
   shots: {
     id: number | null

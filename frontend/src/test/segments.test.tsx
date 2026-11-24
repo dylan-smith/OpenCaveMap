@@ -17,7 +17,7 @@ vi.mock('../telemetry', () => ({
   trackPageView: vi.fn(),
 }))
 
-const project = { id: 7, name: 'Crystal Cave' }
+const project = { id: 7, name: 'Crystal Cave', unitSystem: 'metric' }
 
 const savedSegments = [
   {
@@ -27,6 +27,7 @@ const savedSegments = [
     surveyDate: '2026-11-21',
     stationCount: 4,
     totalLength: '15.5',
+    unitSystem: 'metric',
   },
   {
     id: 10,
@@ -35,17 +36,23 @@ const savedSegments = [
     surveyDate: '2026-03-02',
     stationCount: 2,
     totalLength: '30',
+    unitSystem: 'metric',
   },
 ]
 
-// What the API returns for the blank new segment: its number, the default survey date, two stations and a shot.
-function blankSegment(surveyDate: string | null = '2026-11-21') {
+// What the API returns for the blank new segment: its number, the default survey date, the project's unit system,
+// two stations and a shot.
+function blankSegment(
+  surveyDate: string | null = '2026-11-21',
+  unitSystem = 'metric',
+) {
   return {
     id: null,
     number: 4,
     surveyDate,
     name: null,
     note: null,
+    unitSystem,
     stations: [
       { id: null, label: '4.0', depth: '', note: null },
       { id: null, label: '4.1', depth: '', note: null },
@@ -55,13 +62,14 @@ function blankSegment(surveyDate: string | null = '2026-11-21') {
 }
 
 // What the API returns for saved segment 12, number 3 in the list: three stations and two shots.
-function savedSegment() {
+function savedSegment(unitSystem = 'metric') {
   return {
     id: 12,
     number: 3,
     surveyDate: '2026-11-21',
     name: 'Side passage',
     note: 'Silty',
+    unitSystem,
     stations: [
       { id: 101, label: '3.0', depth: '3', note: 'Line arrow' },
       { id: 102, label: '3.1', depth: '12.35', note: null },
@@ -81,7 +89,7 @@ function savedSegment() {
 }
 
 // A fake segments API for project 7. A POST, PUT or DELETE gets the handler's response, by default a saved segment
-// or, for a DELETE, no content.
+// or, for a DELETE, no content. A PUT to the project itself goes to onUpdateProject.
 function mockApi({
   segments = savedSegments,
   blank = blankSegment(),
@@ -89,6 +97,7 @@ function mockApi({
   onCreate = () => Promise.resolve(jsonResponse({}, 201)),
   onReplace = () => Promise.resolve(jsonResponse(savedSegment())),
   onDelete = () => Promise.resolve(new Response(null, { status: 204 })),
+  onUpdateProject = (body) => Promise.resolve(jsonResponse({ id: 7, ...body })),
 }: {
   segments?: unknown[]
   blank?: unknown
@@ -96,6 +105,7 @@ function mockApi({
   onCreate?: (body: unknown) => Promise<Response>
   onReplace?: (body: unknown, url: string) => Promise<Response>
   onDelete?: (url: string) => Promise<Response>
+  onUpdateProject?: (body: Record<string, unknown>) => Promise<Response>
 } = {}) {
   return mockFetch((url, init) => {
     if (init?.method === 'DELETE') {
@@ -104,6 +114,11 @@ function mockApi({
     // The API client always sends JSON text.
     if (init?.method === 'POST') {
       return onCreate(JSON.parse(init.body as string))
+    }
+    if (init?.method === 'PUT' && url.endsWith('/api/projects/7')) {
+      return onUpdateProject(
+        JSON.parse(init.body as string) as Record<string, unknown>,
+      )
     }
     if (init?.method === 'PUT') {
       return onReplace(JSON.parse(init.body as string), url)
@@ -233,6 +248,205 @@ describe('project page segments', () => {
   })
 })
 
+describe('unit system', () => {
+  // savedSegments as the API lists them once the project is imperial.
+  const segmentsInFeet = [
+    { ...savedSegments[0], totalLength: '50.9', unitSystem: 'imperial' },
+    { ...savedSegments[1], totalLength: '98.4', unitSystem: 'imperial' },
+  ]
+
+  it('shows the project’s unit system on a Metric / Imperial toggle', async () => {
+    mockApi()
+
+    renderAt('/projects/7')
+
+    const toggle = await screen.findByRole('group', { name: 'Unit system' })
+    expect(
+      within(toggle).getByRole('button', { name: 'Metric' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      within(toggle).getByRole('button', { name: 'Imperial' }),
+    ).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('saves a new unit system straight away and reloads the list, with total lengths in it', async () => {
+    const user = userEvent.setup()
+    let updated: unknown
+    const segments = [...savedSegments]
+    mockApi({
+      segments,
+      onUpdateProject: (body) => {
+        updated = body
+        segments.splice(0, 2, ...segmentsInFeet)
+        return Promise.resolve(jsonResponse({ ...project, ...body }))
+      },
+    })
+    renderAt('/projects/7')
+    const toggle = await screen.findByRole('group', { name: 'Unit system' })
+    await screen.findByRole('list', { name: 'Segments' })
+
+    await user.click(within(toggle).getByRole('button', { name: 'Imperial' }))
+
+    expect(
+      await within(toggle).findByRole('button', {
+        name: 'Imperial',
+        pressed: true,
+      }),
+    ).toBeInTheDocument()
+    expect(updated).toEqual({ name: 'Crystal Cave', unitSystem: 'imperial' })
+    const list = screen.getByRole('list', { name: 'Segments' })
+    const items = await within(list).findAllByText(/stations · .* ft$/)
+    expect(items.map((item) => item.textContent)).toEqual([
+      '2026-11-21 · 4 stations · 50.9 ft',
+      '2026-03-02 · 2 stations · 98.4 ft',
+    ])
+    expect(trackEvent).toHaveBeenCalledWith('ProjectUnitSystemChanged', {
+      unitSystem: 'imperial',
+    })
+  })
+
+  it('keeps the rename field as typed when the unit system changes', async () => {
+    const user = userEvent.setup()
+    mockApi()
+    renderAt('/projects/7')
+    const toggle = await screen.findByRole('group', { name: 'Unit system' })
+    await user.clear(screen.getByLabelText(/Project name/))
+    await user.type(screen.getByLabelText(/Project name/), 'Not saved yet')
+
+    await user.click(within(toggle).getByRole('button', { name: 'Imperial' }))
+
+    await within(toggle).findByRole('button', {
+      name: 'Imperial',
+      pressed: true,
+    })
+    expect(screen.getByLabelText(/Project name/)).toHaveValue('Not saved yet')
+    expect(
+      screen.getByRole('heading', { name: 'Crystal Cave' }),
+    ).toBeInTheDocument()
+  })
+
+  it('says when the unit system could not be saved, and keeps the one the project has', async () => {
+    const user = userEvent.setup()
+    mockApi({
+      onUpdateProject: () =>
+        Promise.resolve(new Response(null, { status: 500 })),
+    })
+    renderAt('/projects/7')
+    const toggle = await screen.findByRole('group', { name: 'Unit system' })
+
+    await user.click(within(toggle).getByRole('button', { name: 'Imperial' }))
+
+    expect(
+      await screen.findByText('Unable to change the unit system.'),
+    ).toBeInTheDocument()
+    expect(
+      within(toggle).getByRole('button', { name: 'Metric' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(trackException).toHaveBeenCalledTimes(1)
+  })
+
+  it("shows the can't reach message when the API is unreachable on changing it", async () => {
+    const user = userEvent.setup()
+    mockApi({ onUpdateProject: unreachable })
+    renderAt('/projects/7')
+    const toggle = await screen.findByRole('group', { name: 'Unit system' })
+
+    await user.click(within(toggle).getByRole('button', { name: 'Imperial' }))
+
+    expect(await screen.findByText(unreachableMessage)).toBeInTheDocument()
+  })
+
+  it('does nothing when the current unit system is chosen again', async () => {
+    const user = userEvent.setup()
+    mockApi()
+    renderAt('/projects/7')
+    const toggle = await screen.findByRole('group', { name: 'Unit system' })
+
+    await user.click(within(toggle).getByRole('button', { name: 'Metric' }))
+
+    expect(
+      within(toggle).getByRole('button', { name: 'Metric' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/projects\/7$/),
+      expect.objectContaining({ method: 'PUT' }),
+    )
+  })
+
+  it('shows feet on the depth and distance fields of a segment in imperial, and not on azimuths', async () => {
+    mockApi({ blank: blankSegment('2026-11-21', 'imperial') })
+
+    await openNewSegment()
+
+    expect(screen.getAllByLabelText('Depth (ft)')).toHaveLength(2)
+    expect(screen.getByLabelText('Distance (ft)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Azimuth (°)')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/\(m\)/)).not.toBeInTheDocument()
+    for (const name of [
+      'Station 4.0 depth (ft)',
+      'Shot 4.1 distance (ft)',
+      'Shot 4.1 azimuth (°)',
+      'Station 4.1 depth (ft)',
+    ]) {
+      expect(screen.getByRole('textbox', { name })).toBeInTheDocument()
+    }
+  })
+
+  it('shows metres on the depth and distance fields of a segment in metric', async () => {
+    mockApi()
+
+    await openNewSegment()
+
+    expect(screen.getAllByLabelText('Depth (m)')).toHaveLength(2)
+    expect(screen.getByLabelText('Distance (m)')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/\(ft\)/)).not.toBeInTheDocument()
+  })
+
+  it('sends the unit system the segment came in with, as typed, without converting', async () => {
+    const user = userEvent.setup()
+    let created: { unitSystem?: unknown; shots?: unknown } | undefined
+    mockApi({
+      blank: blankSegment('2026-11-21', 'imperial'),
+      onCreate: (body) => {
+        created = body as typeof created
+        return Promise.resolve(jsonResponse({}, 201))
+      },
+    })
+    await openNewSegment()
+
+    await user.type(screen.getByLabelText('Station 4.0 depth (ft)'), '10')
+    await user.type(screen.getByLabelText('Shot 4.1 distance (ft)'), '30')
+    await user.type(screen.getByLabelText('Shot 4.1 azimuth (°)'), '90')
+    await user.type(screen.getByLabelText('Station 4.1 depth (ft)'), '20')
+    await user.click(screen.getByRole('button', { name: 'Save segment' }))
+
+    await screen.findByRole('heading', { name: 'Crystal Cave' })
+    expect(created?.unitSystem).toBe('imperial')
+    expect(created?.shots).toEqual([
+      { id: null, distance: '30', azimuth: '90', note: '' },
+    ])
+  })
+
+  it('sends a reopened segment back in the unit system it was shown in, even if the project has changed since', async () => {
+    const user = userEvent.setup()
+    let replaced: { unitSystem?: unknown } | undefined
+    mockApi({
+      saved: savedSegment('imperial'),
+      onReplace: (body) => {
+        replaced = body as typeof replaced
+        return Promise.resolve(jsonResponse(savedSegment()))
+      },
+    })
+    renderAt('/projects/7/segments/12')
+    await screen.findByRole('heading', { name: 'Segment 3' })
+
+    await user.click(screen.getByRole('button', { name: 'Save segment' }))
+
+    await screen.findByRole('heading', { name: 'Crystal Cave' })
+    expect(replaced?.unitSystem).toBe('imperial')
+  })
+})
+
 describe('segment entry screen', () => {
   it('opens the new segment the API supplies, with the default survey date', async () => {
     mockApi()
@@ -338,6 +552,7 @@ describe('segment entry screen', () => {
       surveyDate: '2026-11-21',
       name: ' Main line ',
       note: 'Clear water',
+      unitSystem: 'metric',
       stations: [
         { id: null, depth: '3', note: 'Line arrow' },
         { id: null, depth: '7', note: '' },
@@ -694,6 +909,7 @@ describe('reopening a saved segment', () => {
       surveyDate: '2026-01-05',
       name: 'Upstream',
       note: 'Silty',
+      unitSystem: 'metric',
       stations: [
         { id: 101, depth: '3', note: '' },
         { id: 102, depth: '12.35', note: '' },
@@ -1450,6 +1666,7 @@ describe('inserting and removing stations', () => {
       surveyDate: '2026-11-21',
       name: 'Side passage',
       note: 'Silty',
+      unitSystem: 'metric',
       stations: [
         { id: 102, depth: '12.35', note: '' },
         { id: null, depth: '10', note: '' },

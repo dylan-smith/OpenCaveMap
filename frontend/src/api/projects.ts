@@ -1,9 +1,19 @@
 import { apiBaseUrl } from '../config'
 import { apiFetch } from './client'
 
+// How a project's depths and distances are entered and shown: in metres or in feet. The API stores them in metres
+// either way and does all the converting.
+export type UnitSystem = 'metric' | 'imperial'
+
 export type Project = {
   id: number
   name: string
+  unitSystem: UnitSystem
+}
+
+// The unit depths and distances are shown with.
+export function lengthUnit(unitSystem: UnitSystem) {
+  return unitSystem === 'imperial' ? 'ft' : 'm'
 }
 
 type ErrorResponse = {
@@ -55,13 +65,19 @@ export async function getProject(id: number): Promise<Project | null> {
   return (await response.json()) as Project
 }
 
-async function saveProject(url: string, method: 'POST' | 'PUT', name: string) {
+// Without a unit system, a new project is metric and an existing one keeps its own.
+async function saveProject(
+  url: string,
+  method: 'POST' | 'PUT',
+  name: string,
+  unitSystem?: UnitSystem,
+) {
   const response = await apiFetch(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(unitSystem ? { name, unitSystem } : { name }),
   })
 
   if (response.status === 409) {
@@ -81,8 +97,12 @@ export function createProject(name: string) {
   return saveProject(projectsUrl, 'POST', name)
 }
 
-export function updateProject(id: number, name: string) {
-  return saveProject(`${projectsUrl}/${id}`, 'PUT', name)
+export function updateProject(
+  id: number,
+  name: string,
+  unitSystem?: UnitSystem,
+) {
+  return saveProject(`${projectsUrl}/${id}`, 'PUT', name, unitSystem)
 }
 
 // A 404 means the project is already gone, which is what the caller wanted.

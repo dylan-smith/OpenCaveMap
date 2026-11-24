@@ -7,13 +7,15 @@ using OpenCaveMap.Api.Models;
 namespace OpenCaveMap.Api.Segments;
 
 /// <summary>
-/// A segment request that has been parsed and passed every rule, ready to store. Readings are rounded to what the
-/// database keeps, and names and notes are trimmed, with blank ones absent.
+/// A segment request that has been parsed and passed every rule, ready to store. Readings are converted to metres and
+/// rounded to what the database keeps, and names and notes are trimmed, with blank ones absent.
 /// </summary>
+/// <param name="UnitSystem">The unit system the readings were typed in.</param>
 public sealed record ValidSegment(
     DateOnly SurveyDate,
     string? Name,
     string? Note,
+    UnitSystem UnitSystem,
     IReadOnlyList<ValidStation> Stations,
     IReadOnlyList<ValidShot> Shots);
 
@@ -22,7 +24,7 @@ public sealed record ValidStation(int? Id, LengthReading Depth, string? Note);
 public sealed record ValidShot(int? Id, LengthReading Distance, decimal Azimuth, string? Note);
 
 /// <summary>
-/// A depth or distance: the text the user typed, trimmed, and its value in metres.
+/// A depth or distance: the text the user typed, trimmed, and its value converted to metres.
 /// </summary>
 public sealed record LengthReading(string Text, decimal Metres);
 
@@ -56,6 +58,11 @@ public static partial class SegmentInput
         var surveyDate = ReadSurveyDate(request.SurveyDate, errors);
         var name = ReadText(request.Name, "name", "Name", NameMaxLength, errors);
         var note = ReadText(request.Note, "note", "Note", SegmentNoteMaxLength, errors);
+        var unitSystem = ReadUnitSystem(request.UnitSystem, errors);
+
+        // Without a unit system the request is rejected anyway, but its readings are still checked as metres so that
+        // every other problem is reported too.
+        var readingUnitSystem = unitSystem ?? UnitSystem.Metric;
 
         var stationRequests = request.Stations ?? [];
         var shotRequests = request.Shots ?? [];
@@ -71,11 +78,11 @@ public static partial class SegmentInput
         }
 
         var stations = stationRequests
-            .Select((station, index) => ReadStation(station, $"stations[{index}]", errors))
+            .Select((station, index) => ReadStation(station, $"stations[{index}]", readingUnitSystem, errors))
             .ToList();
 
         var shots = shotRequests
-            .Select((shot, index) => ReadShot(shot, $"shots[{index}]", errors))
+            .Select((shot, index) => ReadShot(shot, $"shots[{index}]", readingUnitSystem, errors))
             .ToList();
 
         if (replacing is not null)
@@ -88,21 +95,22 @@ public static partial class SegmentInput
 
         // Every station and shot is present when nothing was rejected.
         return errors.IsValid
-            ? new ValidSegment(surveyDate!.Value, name, note, stations!, shots!)
+            ? new ValidSegment(surveyDate!.Value, name, note, unitSystem!.Value, stations!, shots!)
             : null;
     }
 
-    private static ValidStation? ReadStation(StationRequest? station, string path, ModelStateDictionary errors)
+    private static ValidStation? ReadStation(
+        StationRequest? station, string path, UnitSystem unitSystem, ModelStateDictionary errors)
     {
-        var depth = ReadLength(station?.Depth, $"{path}.depth", "Depth", allowZero: true, errors);
+        var depth = ReadLength(station?.Depth, $"{path}.depth", "Depth", allowZero: true, unitSystem, errors);
         var note = ReadText(station?.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
         return depth is not null ? new ValidStation(station?.Id, depth, note) : null;
     }
 
-    private static ValidShot? ReadShot(ShotRequest? shot, string path, ModelStateDictionary errors)
+    private static ValidShot? ReadShot(ShotRequest? shot, string path, UnitSystem unitSystem, ModelStateDictionary errors)
     {
-        var distance = ReadLength(shot?.Distance, $"{path}.distance", "Distance", allowZero: false, errors);
+        var distance = ReadLength(shot?.Distance, $"{path}.distance", "Distance", allowZero: false, unitSystem, errors);
         var azimuth = ReadAzimuth(shot?.Azimuth, $"{path}.azimuth", errors);
         var note = ReadText(shot?.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
@@ -155,6 +163,24 @@ public static partial class SegmentInput
         return date;
     }
 
+    private static UnitSystem? ReadUnitSystem(string? text, ModelStateDictionary errors)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            errors.AddModelError("unitSystem", "Unit system is required.");
+            return null;
+        }
+
+        var unitSystem = UnitSystems.Parse(text);
+
+        if (unitSystem is null)
+        {
+            errors.AddModelError("unitSystem", UnitSystems.UnknownMessage);
+        }
+
+        return unitSystem;
+    }
+
     // Trimmed, and absent when blank.
     private static string? ReadText(string? text, string key, string field, int maxLength, ModelStateDictionary errors)
     {
@@ -174,14 +200,16 @@ public static partial class SegmentInput
         return trimmed;
     }
 
-    private static LengthReading? ReadLength(string? text, string key, string reading, bool allowZero, ModelStateDictionary errors)
+    // Converted to metres before it's rounded and checked, so the limits apply to the value that's stored.
+    private static LengthReading? ReadLength(
+        string? text, string key, string reading, bool allowZero, UnitSystem unitSystem, ModelStateDictionary errors)
     {
         if (!TryReadNumber(text, key, reading, errors, out var value))
         {
             return null;
         }
 
-        var metres = Math.Round(value, LengthDecimals, MidpointRounding.AwayFromZero);
+        var metres = Math.Round(Readings.ToMetres(value, unitSystem), LengthDecimals, MidpointRounding.AwayFromZero);
 
         if (allowZero && value < 0)
         {

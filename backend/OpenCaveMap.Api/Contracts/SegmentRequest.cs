@@ -16,6 +16,12 @@ public class SegmentRequest
     public string? Note { get; set; }
 
     /// <summary>
+    /// "metric" or "imperial": the unit system the depths and distances were typed in. It's used to convert them even
+    /// when the project's own setting has changed since.
+    /// </summary>
+    public string? UnitSystem { get; set; }
+
+    /// <summary>
     /// In order along the segment.
     /// </summary>
     public List<StationRequest?>? Stations { get; set; }
@@ -31,7 +37,7 @@ public class StationRequest
     public int? Id { get; set; }
 
     /// <summary>
-    /// In metres.
+    /// In the request's unit system.
     /// </summary>
     public string? Depth { get; set; }
 
@@ -43,7 +49,7 @@ public class ShotRequest
     public int? Id { get; set; }
 
     /// <summary>
-    /// In metres.
+    /// In the request's unit system.
     /// </summary>
     public string? Distance { get; set; }
 

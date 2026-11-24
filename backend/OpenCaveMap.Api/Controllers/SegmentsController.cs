@@ -17,12 +17,13 @@ namespace OpenCaveMap.Api.Controllers;
 public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<SegmentsController> logger) : ControllerBase
 {
     /// <summary>
-    /// The project's segments, newest survey date first, then highest number first.
+    /// The project's segments, newest survey date first, then highest number first, with total lengths in the
+    /// project's unit system.
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<IEnumerable<SegmentSummary>>> GetAll(int projectId)
     {
-        if (!await dbContext.Projects.AnyAsync(item => item.Id == projectId))
+        if (await FindUnitSystemAsync(projectId) is not UnitSystem unitSystem)
         {
             logger.LogWarning("Project {ProjectId} not found for listing segments", projectId);
             return NotFound();
@@ -53,12 +54,13 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
             segment.Name,
             segment.SurveyDate,
             segment.StationCount,
-            Readings.FormatLength(segment.TotalLength))));
+            Readings.FormatLength(segment.TotalLength, unitSystem),
+            unitSystem)));
     }
 
     /// <summary>
     /// The segment the entry screen starts from: the number it will get, the survey date of the project's most
-    /// recently added segment, two blank stations and one blank shot.
+    /// recently added segment, the project's unit system, two blank stations and one blank shot.
     /// </summary>
     [HttpGet("new")]
     public async Task<ActionResult<SegmentResponse>> GetNew(int projectId)
@@ -87,6 +89,7 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
             lastSurveyDate,
             Name: null,
             Note: null,
+            project.UnitSystem,
             [BlankStation(number, 0), BlankStation(number, 1)],
             [new ShotResponse(Id: null, Readings.Label(number, 1), Distance: "", Azimuth: "", Note: null)]));
 
@@ -148,33 +151,33 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
             "Created segment {SegmentId} with number {SegmentNumber} in project {ProjectId}",
             segment.Id, segment.Number, projectId);
 
-        return CreatedAtAction(nameof(GetById), new { projectId, segmentId = segment.Id }, ToResponse(segment));
+        return CreatedAtAction(
+            nameof(GetById), new { projectId, segmentId = segment.Id }, ToResponse(segment, project.UnitSystem));
     }
 
+    /// <summary>
+    /// The segment, with its readings in the project's unit system.
+    /// </summary>
     [HttpGet("{segmentId:int}")]
     public async Task<ActionResult<SegmentResponse>> GetById(int projectId, int segmentId)
     {
-        var segment = await FindSegmentAsync(projectId, segmentId, tracking: false);
-
-        if (segment is null)
+        if (await FindSegmentAsync(projectId, segmentId, tracking: false) is not var (segment, unitSystem))
         {
             logger.LogWarning("Segment {SegmentId} not found in project {ProjectId}", segmentId, projectId);
             return NotFound();
         }
 
-        return Ok(ToResponse(segment));
+        return Ok(ToResponse(segment, unitSystem));
     }
 
     /// <summary>
     /// Replaces the whole segment. Stations and shots sent with an identity keep it, ones without are new, and saved
-    /// ones left out are removed.
+    /// ones left out are removed. The response is in the project's unit system, whichever one the request was in.
     /// </summary>
     [HttpPut("{segmentId:int}")]
     public async Task<ActionResult<SegmentResponse>> Replace(int projectId, int segmentId, [FromBody] SegmentRequest request)
     {
-        var segment = await FindSegmentAsync(projectId, segmentId, tracking: true);
-
-        if (segment is null)
+        if (await FindSegmentAsync(projectId, segmentId, tracking: true) is not var (segment, unitSystem))
         {
             logger.LogWarning("Segment {SegmentId} not found in project {ProjectId} for replacement", segmentId, projectId);
             return NotFound();
@@ -194,7 +197,7 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
 
         logger.LogInformation("Replaced segment {SegmentId} in project {ProjectId}", segmentId, projectId);
 
-        return Ok(ToResponse(segment));
+        return Ok(ToResponse(segment, unitSystem));
     }
 
     /// <summary>
@@ -205,9 +208,7 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
     public async Task<IActionResult> Delete(int projectId, int segmentId)
     {
         // Loaded with its stations and shots, so they're removed with it even where the database doesn't cascade.
-        var segment = await FindSegmentAsync(projectId, segmentId, tracking: true);
-
-        if (segment is null)
+        if (await FindSegmentAsync(projectId, segmentId, tracking: true) is not var (segment, _))
         {
             logger.LogWarning("Segment {SegmentId} not found in project {ProjectId} for deletion", segmentId, projectId);
             return NotFound();
@@ -221,25 +222,37 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
         return NoContent();
     }
 
-    // The segment with its stations and shots, or null unless both the project is the current user's and the segment
-    // belongs to it.
-    private async Task<Segment?> FindSegmentAsync(int projectId, int segmentId, bool tracking)
+    // The project's unit system, or null unless the project is the current user's.
+    private Task<UnitSystem?> FindUnitSystemAsync(int projectId)
     {
-        if (!await dbContext.Projects.AnyAsync(item => item.Id == projectId))
+        return dbContext.Projects
+            .Where(item => item.Id == projectId)
+            .Select(item => (UnitSystem?)item.UnitSystem)
+            .FirstOrDefaultAsync();
+    }
+
+    // The segment with its stations and shots, and its project's unit system, or null unless both the project is the
+    // current user's and the segment belongs to it.
+    private async Task<(Segment Segment, UnitSystem UnitSystem)?> FindSegmentAsync(int projectId, int segmentId, bool tracking)
+    {
+        if (await FindUnitSystemAsync(projectId) is not UnitSystem unitSystem)
         {
             return null;
         }
 
         var segments = tracking ? dbContext.Segments : dbContext.Segments.AsNoTracking();
 
-        return await segments
-            .Include(segment => segment.Stations)
-            .Include(segment => segment.Shots)
+        var segment = await segments
+            .Include(item => item.Stations)
+            .Include(item => item.Shots)
             .AsSplitQuery()
-            .FirstOrDefaultAsync(segment => segment.Id == segmentId && segment.ProjectId == projectId);
+            .FirstOrDefaultAsync(item => item.Id == segmentId && item.ProjectId == projectId);
+
+        return segment is null ? null : (segment, unitSystem);
     }
 
-    private static SegmentResponse ToResponse(Segment segment)
+    // Depths and distances are shown in the project's unit system.
+    private static SegmentResponse ToResponse(Segment segment, UnitSystem unitSystem)
     {
         return new SegmentResponse(
             segment.Id,
@@ -247,19 +260,20 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
             segment.SurveyDate,
             segment.Name,
             segment.Note,
+            unitSystem,
             [.. segment.Stations
                 .OrderBy(station => station.Position)
                 .Select(station => new StationResponse(
                     station.Id,
                     Readings.Label(segment.Number, station.Position),
-                    Readings.FormatLength(station.Depth),
+                    Readings.FormatLength(station.Depth, unitSystem),
                     station.Note))],
             [.. segment.Shots
                 .OrderBy(shot => shot.Position)
                 .Select(shot => new ShotResponse(
                     shot.Id,
                     Readings.Label(segment.Number, shot.Position),
-                    Readings.FormatLength(shot.Distance),
+                    Readings.FormatLength(shot.Distance, unitSystem),
                     Readings.FormatAzimuth(shot.Azimuth),
                     shot.Note))]);
     }

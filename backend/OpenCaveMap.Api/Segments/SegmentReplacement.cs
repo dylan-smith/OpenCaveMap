@@ -27,7 +27,7 @@ public static class SegmentReplacement
         {
             var station = Match(segment.Stations, stations, row.Id);
             station.Position = position;
-            station.Depth = row.Id is null ? row.Depth.Metres : Readings.KeepUnlessChanged(station.Depth, row.Depth);
+            station.Depth = row.Id is null ? row.Depth.Metres : Readings.KeepUnlessChanged(station.Depth, row.Depth, input.UnitSystem);
             station.Note = row.Note;
         }
 
@@ -36,7 +36,7 @@ public static class SegmentReplacement
         {
             var shot = Match(segment.Shots, shots, row.Id);
             shot.Position = index + 1;
-            shot.Distance = row.Id is null ? row.Distance.Metres : Readings.KeepUnlessChanged(shot.Distance, row.Distance);
+            shot.Distance = row.Id is null ? row.Distance.Metres : Readings.KeepUnlessChanged(shot.Distance, row.Distance, input.UnitSystem);
             shot.Azimuth = row.Azimuth;
             shot.Note = row.Note;
         }

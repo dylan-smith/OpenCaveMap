@@ -55,6 +55,12 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         if (trimmedName.Length == 0)
         {
             ModelState.AddModelError(nameof(request.Name), "Project name is required.");
+        }
+
+        var unitSystem = ReadUnitSystem(request);
+
+        if (!ModelState.IsValid)
+        {
             return ValidationProblem(ModelState);
         }
 
@@ -68,7 +74,8 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
 
         var project = new Project
         {
-            Name = trimmedName
+            Name = trimmedName,
+            UnitSystem = unitSystem ?? UnitSystem.Metric,
         };
 
         dbContext.Projects.Add(project);
@@ -110,6 +117,12 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         if (trimmedName.Length == 0)
         {
             ModelState.AddModelError(nameof(request.Name), "Project name is required.");
+        }
+
+        var unitSystem = ReadUnitSystem(request);
+
+        if (!ModelState.IsValid)
+        {
             return ValidationProblem(ModelState);
         }
 
@@ -122,6 +135,7 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         }
 
         project.Name = trimmedName;
+        project.UnitSystem = unitSystem ?? project.UnitSystem;
 
         try
         {
@@ -143,6 +157,20 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         logger.LogInformation("Updated project {ProjectId}", id);
 
         return Ok(project);
+    }
+
+    // The unit system the request names, or null when it names none. One it names that doesn't exist is a validation
+    // message.
+    private UnitSystem? ReadUnitSystem(ProjectRequest request)
+    {
+        var unitSystem = UnitSystems.Parse(request.UnitSystem);
+
+        if (request.UnitSystem is not null && unitSystem is null)
+        {
+            ModelState.AddModelError("unitSystem", UnitSystems.UnknownMessage);
+        }
+
+        return unitSystem;
     }
 
     private async Task<bool> HasDuplicateNameAsync(string name, int? excludeId = null)
