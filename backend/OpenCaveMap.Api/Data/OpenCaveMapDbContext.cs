@@ -17,6 +17,8 @@ public class OpenCaveMapDbContext(DbContextOptions<OpenCaveMapDbContext> options
 
     public DbSet<Project> Projects => Set<Project>();
 
+    public DbSet<Segment> Segments => Set<Segment>();
+
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
         AssignOwner();
@@ -82,5 +84,63 @@ public class OpenCaveMapDbContext(DbContextOptions<OpenCaveMapDbContext> options
             .Property(project => project.Name)
             .HasMaxLength(200)
             .IsRequired();
+
+        // Segments have no query filter of their own: they're only reached through a project, which has one.
+        modelBuilder.Entity<Segment>(segment =>
+        {
+            segment.HasOne<Project>()
+                .WithMany()
+                .HasForeignKey(item => item.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            segment.HasIndex(item => new { item.ProjectId, item.Number })
+                .IsUnique();
+
+            segment.Property(item => item.Name)
+                .HasMaxLength(200);
+
+            segment.Property(item => item.Note)
+                .HasMaxLength(2000);
+
+            segment.HasMany(item => item.Stations)
+                .WithOne()
+                .HasForeignKey(station => station.SegmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            segment.HasMany(item => item.Shots)
+                .WithOne()
+                .HasForeignKey(shot => shot.SegmentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Positions aren't unique, because one save renumbers several rows together.
+        modelBuilder.Entity<Station>(station =>
+        {
+            station.ToTable("Stations");
+
+            station.HasIndex(item => new { item.SegmentId, item.Position });
+
+            station.Property(item => item.Depth)
+                .HasPrecision(11, 6);
+
+            station.Property(item => item.Note)
+                .HasMaxLength(500);
+        });
+
+        modelBuilder.Entity<Shot>(shot =>
+        {
+            shot.ToTable("Shots");
+
+            shot.HasIndex(item => new { item.SegmentId, item.Position });
+
+            shot.Property(item => item.Distance)
+                .HasPrecision(11, 6);
+
+            shot.Property(item => item.Azimuth)
+                .HasPrecision(6, 3);
+
+            shot.Property(item => item.Note)
+                .HasMaxLength(500);
+        });
     }
 }

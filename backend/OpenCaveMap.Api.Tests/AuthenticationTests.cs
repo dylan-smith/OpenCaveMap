@@ -1,7 +1,5 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -112,11 +110,7 @@ public class AuthenticationTests(WebApplicationFactory<Program> factory)
 
     private WebApplicationFactory<Program> CreateFactory(bool allowTestSignIn = true, string serviceToken = "")
     {
-        // Development uses the in-memory database, so the app starts without SQL Server.
-        return factory.WithWebHostBuilder(builder => builder
-            .UseEnvironment("Development")
-            .UseSetting("Authentication:AllowTestSignIn", allowTestSignIn.ToString())
-            .UseSetting("Authentication:ServiceToken", serviceToken));
+        return TestApi.Configure(factory, allowTestSignIn, serviceToken);
     }
 
     private HttpClient CreateClient(string? token = null)
@@ -126,14 +120,7 @@ public class AuthenticationTests(WebApplicationFactory<Program> factory)
 
     private static HttpClient CreateClient(WebApplicationFactory<Program> webFactory, string? token)
     {
-        var client = webFactory.CreateClient();
-
-        if (token is not null)
-        {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
-
-        return client;
+        return TestApi.CreateClient(webFactory, token);
     }
 
     private sealed record MeResponse(string? DisplayName, string? Email);

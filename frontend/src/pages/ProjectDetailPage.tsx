@@ -19,6 +19,7 @@ import {
 import type { Project } from '../api/projects'
 import { trackEvent, trackException } from '../telemetry'
 import NotFoundPage from './NotFoundPage'
+import ProjectSegments from './ProjectSegments'
 import { parseId } from './parseId'
 
 function ProjectDetail({ id }: { id: number }) {
@@ -173,6 +174,8 @@ function ProjectDetail({ id }: { id: number }) {
           </Paper>
         )
       )}
+
+      {project && <ProjectSegments projectId={id} />}
     </Stack>
   )
 }
