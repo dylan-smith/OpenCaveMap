@@ -53,8 +53,27 @@ export type SegmentRequest = {
   }[]
 }
 
-export const segmentRejectedMessage =
-  "This segment couldn't be saved. Check the survey date and every reading, then try again."
+export const segmentRejectedMessage = "This segment couldn't be saved."
+
+// The API's validation messages, keyed by the camelCase path of the field each belongs to: surveyDate, name, note,
+// stations[i].depth, shots[i].azimuth and so on, where i is the row's position in the request. A message keyed by
+// stations or shots alone is about the segment as a whole.
+export type SegmentErrors = Record<string, string[]>
+
+type ValidationProblem = {
+  errors?: SegmentErrors
+}
+
+// Thrown when the API rejects what the user typed, carrying its messages for the screen to place.
+export class SegmentRejectedError extends ApiError {
+  readonly errors: SegmentErrors
+
+  constructor(errors: SegmentErrors) {
+    super(400, segmentRejectedMessage)
+    this.name = 'SegmentRejectedError'
+    this.errors = errors
+  }
+}
 
 function segmentsUrl(projectId: number) {
   return `${apiBaseUrl}/api/projects/${projectId}/segments`
@@ -85,7 +104,8 @@ export async function getNewSegment(
   return (await response.json()) as Segment
 }
 
-// A 400 means the API rejected something the user typed, so it's thrown as an ApiError for the screen to show.
+// A 400 means the API rejected something the user typed, so it's thrown with the API's messages for the screen to
+// place.
 export async function createSegment(
   projectId: number,
   segment: SegmentRequest,
@@ -99,7 +119,8 @@ export async function createSegment(
   })
 
   if (response.status === 400) {
-    throw new ApiError(400, segmentRejectedMessage)
+    const problem = (await response.json()) as ValidationProblem
+    throw new SegmentRejectedError(problem.errors ?? {})
   }
   if (!response.ok) {
     throw new Error('Unable to save segment.')

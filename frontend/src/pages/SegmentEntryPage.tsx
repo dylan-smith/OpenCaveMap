@@ -9,9 +9,14 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { Link, useNavigate, useParams } from 'react-router'
-import { ApiError, describeFetchError } from '../api/projects'
-import { createSegment, getNewSegment } from '../api/segments'
-import type { Segment, SegmentRequest } from '../api/segments'
+import { describeFetchError } from '../api/projects'
+import {
+  createSegment,
+  getNewSegment,
+  segmentRejectedMessage,
+  SegmentRejectedError,
+} from '../api/segments'
+import type { Segment, SegmentErrors, SegmentRequest } from '../api/segments'
 import { trackEvent, trackException } from '../telemetry'
 import NotFoundPage from './NotFoundPage'
 import { parseId } from './parseId'
@@ -98,6 +103,60 @@ function toRequest(draft: Draft): SegmentRequest {
   }
 }
 
+// The API's messages from a rejected save, placed on the screen. fields holds one message per field, keyed by
+// surveyDate, name or note, or by a row's key and the field's name, so a message stays with the row it was reported
+// for even if rows move. general holds the messages that aren't tied to one field.
+type Messages = {
+  fields: Record<string, string>
+  general: string[]
+}
+
+// The fields a message can be placed on.
+const segmentFields = ['surveyDate', 'name', 'note']
+const stationFields = ['depth', 'note']
+const shotFields = ['distance', 'azimuth', 'note']
+
+function rowField(rowKey: string, field: string) {
+  return `${rowKey}.${field}`
+}
+
+// The API keys each message by the field's path in the request, such as stations[1].depth, so the row is found by
+// its position in the draft that was sent. Returns null for a path with no field on the screen.
+function fieldForPath(sent: Draft, path: string) {
+  if (segmentFields.includes(path)) {
+    return path
+  }
+  const match = /^(stations|shots)\[(\d+)\]\.(\w+)$/.exec(path)
+  if (match === null) {
+    return null
+  }
+  const [, rows, index, field] = match
+  const row =
+    rows === 'stations'
+      ? sent.stations.at(Number(index))
+      : sent.shots.at(Number(index))
+  const fields = rows === 'stations' ? stationFields : shotFields
+  return row && fields.includes(field) ? rowField(row.key, field) : null
+}
+
+function placeMessages(sent: Draft, errors: SegmentErrors): Messages {
+  const fields: Record<string, string> = {}
+  const general: string[] = []
+  for (const [path, messages] of Object.entries(errors)) {
+    const field = fieldForPath(sent, path)
+    if (field === null) {
+      general.push(...messages)
+    } else {
+      fields[field] = messages.join(' ')
+    }
+  }
+  return { fields, general }
+}
+
+function fieldsToFix(count: number) {
+  return count === 1 ? '1 field needs fixing.' : `${count} fields need fixing.`
+}
+
 // Labels come from the API for saved rows, but rows are added before anything is saved, so while editing they're
 // worked out from the segment's number and the row's position. Stations count from 0 and shots from 1.
 function stationLabel(draft: Draft, index: number) {
@@ -122,6 +181,7 @@ function SegmentEntry({ projectId }: { projectId: number }) {
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [messages, setMessages] = useState<Messages | null>(null)
 
   useEffect(() => {
     // Ignore a response that arrives after the user has left the page.
@@ -164,32 +224,60 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     )
   }
 
+  // A field's message goes once the user changes that field. The summary goes with the last message.
+  function clearMessages(fields: string[]) {
+    setMessages((previous) => {
+      if (
+        previous === null ||
+        !fields.some((field) => field in previous.fields)
+      ) {
+        return previous
+      }
+      const remaining = Object.fromEntries(
+        Object.entries(previous.fields).filter(
+          ([field]) => !fields.includes(field),
+        ),
+      )
+      return Object.keys(remaining).length === 0 &&
+        previous.general.length === 0
+        ? null
+        : { ...previous, fields: remaining }
+    })
+  }
+
   function update(changes: Partial<Draft>) {
     setDraft((previous) => previous && { ...previous, ...changes })
+    clearMessages(Object.keys(changes))
   }
 
-  function updateStation(index: number, changes: Partial<DraftStation>) {
+  function updateStation(key: string, changes: Partial<DraftStation>) {
     setDraft(
       (previous) =>
         previous && {
           ...previous,
-          stations: previous.stations.map((station, i) =>
-            i === index ? { ...station, ...changes } : station,
+          stations: previous.stations.map((station) =>
+            station.key === key ? { ...station, ...changes } : station,
           ),
         },
     )
+    clearMessages(Object.keys(changes).map((field) => rowField(key, field)))
   }
 
-  function updateShot(index: number, changes: Partial<DraftShot>) {
+  function updateShot(key: string, changes: Partial<DraftShot>) {
     setDraft(
       (previous) =>
         previous && {
           ...previous,
-          shots: previous.shots.map((shot, i) =>
-            i === index ? { ...shot, ...changes } : shot,
+          shots: previous.shots.map((shot) =>
+            shot.key === key ? { ...shot, ...changes } : shot,
           ),
         },
     )
+    clearMessages(Object.keys(changes).map((field) => rowField(key, field)))
+  }
+
+  function message(field: string) {
+    return messages?.fields[field]
   }
 
   function addShotAndStation() {
@@ -209,19 +297,23 @@ function SegmentEntry({ projectId }: { projectId: number }) {
       return
     }
 
+    const sent = draft
     setSaving(true)
     setSaveError('')
+    setMessages(null)
 
     try {
-      await createSegment(projectId, toRequest(draft))
+      await createSegment(projectId, toRequest(sent))
       trackEvent('SegmentCreated')
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       // A rejected segment is the user's to fix, not a failure to report.
-      if (!(error instanceof ApiError)) {
+      if (error instanceof SegmentRejectedError) {
+        setMessages(placeMessages(sent, error.errors))
+      } else {
         trackException(error, { operation: 'saveSegment' })
+        setSaveError(describeFetchError(error, 'Unable to save segment.'))
       }
-      setSaveError(describeFetchError(error, 'Unable to save segment.'))
       setSaving(false)
     }
   }
@@ -263,6 +355,8 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                     update({ surveyDate: event.target.value })
                   }
                   required
+                  error={Boolean(message('surveyDate'))}
+                  helperText={message('surveyDate')}
                   slotProps={{ inputLabel: { shrink: true } }}
                 />
                 <TextField
@@ -270,6 +364,8 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                   label="Name"
                   value={draft.name}
                   onChange={(event) => update({ name: event.target.value })}
+                  error={Boolean(message('name'))}
+                  helperText={message('name')}
                   sx={{ flex: 1 }}
                 />
               </Stack>
@@ -278,6 +374,8 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                 label="Segment note"
                 value={draft.note}
                 onChange={(event) => update({ note: event.target.value })}
+                error={Boolean(message('note'))}
+                helperText={message('note')}
                 multiline
                 fullWidth
               />
@@ -290,13 +388,21 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                       <StationRow
                         label={stationLabel(draft, index)}
                         station={station}
-                        onChange={(changes) => updateStation(index, changes)}
+                        message={(field) =>
+                          message(rowField(station.key, field))
+                        }
+                        onChange={(changes) =>
+                          updateStation(station.key, changes)
+                        }
                       />
                       {shot && (
                         <ShotRow
                           label={shotLabel(draft, index)}
                           shot={shot}
-                          onChange={(changes) => updateShot(index, changes)}
+                          message={(field) =>
+                            message(rowField(shot.key, field))
+                          }
+                          onChange={(changes) => updateShot(shot.key, changes)}
                         />
                       )}
                     </Box>
@@ -309,6 +415,20 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                 </Button>
               </Box>
 
+              {messages && (
+                <Alert severity="error">
+                  {segmentRejectedMessage}
+                  {Object.keys(messages.fields).length > 0 &&
+                    ` ${fieldsToFix(Object.keys(messages.fields).length)}`}
+                  {messages.general.length > 0 && (
+                    <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+                      {messages.general.map((text, index) => (
+                        <li key={index}>{text}</li>
+                      ))}
+                    </Box>
+                  )}
+                </Alert>
+              )}
               {saveError && <Alert severity="error">{saveError}</Alert>}
               <Box>
                 <Button type="submit" variant="contained" disabled={saving}>
@@ -327,10 +447,12 @@ function SegmentEntry({ projectId }: { projectId: number }) {
 function StationRow({
   label,
   station,
+  message,
   onChange,
 }: {
   label: string
   station: DraftStation
+  message: (field: 'depth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftStation>) => void
 }) {
   return (
@@ -368,6 +490,8 @@ function StationRow({
         label="Depth (m)"
         value={station.depth}
         onChange={(event) => onChange({ depth: event.target.value })}
+        error={Boolean(message('depth'))}
+        helperText={message('depth')}
         sx={{ width: 130 }}
         slotProps={{
           htmlInput: {
@@ -381,6 +505,8 @@ function StationRow({
         label="Note"
         value={station.note}
         onChange={(event) => onChange({ note: event.target.value })}
+        error={Boolean(message('note'))}
+        helperText={message('note')}
         sx={{ flex: 1, minWidth: 160 }}
         slotProps={{ htmlInput: { 'aria-label': `${label} note` } }}
       />
@@ -391,10 +517,12 @@ function StationRow({
 function ShotRow({
   label,
   shot,
+  message,
   onChange,
 }: {
   label: string
   shot: DraftShot
+  message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
 }) {
   return (
@@ -427,6 +555,8 @@ function ShotRow({
         label="Distance (m)"
         value={shot.distance}
         onChange={(event) => onChange({ distance: event.target.value })}
+        error={Boolean(message('distance'))}
+        helperText={message('distance')}
         sx={{ width: 130 }}
         slotProps={{
           htmlInput: {
@@ -440,6 +570,8 @@ function ShotRow({
         label="Azimuth (°)"
         value={shot.azimuth}
         onChange={(event) => onChange({ azimuth: event.target.value })}
+        error={Boolean(message('azimuth'))}
+        helperText={message('azimuth')}
         sx={{ width: 110 }}
         slotProps={{
           htmlInput: {
@@ -453,6 +585,8 @@ function ShotRow({
         label="Note"
         value={shot.note}
         onChange={(event) => onChange({ note: event.target.value })}
+        error={Boolean(message('note'))}
+        helperText={message('note')}
         sx={{ flex: 1, minWidth: 160 }}
         slotProps={{ htmlInput: { 'aria-label': `${label} note` } }}
       />
