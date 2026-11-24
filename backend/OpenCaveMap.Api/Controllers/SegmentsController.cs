@@ -197,6 +197,30 @@ public class SegmentsController(OpenCaveMapDbContext dbContext, ILogger<Segments
         return Ok(ToResponse(segment));
     }
 
+    /// <summary>
+    /// Deletes the segment with its stations and shots. Its number isn't reused, since the project's counter only
+    /// goes up.
+    /// </summary>
+    [HttpDelete("{segmentId:int}")]
+    public async Task<IActionResult> Delete(int projectId, int segmentId)
+    {
+        // Loaded with its stations and shots, so they're removed with it even where the database doesn't cascade.
+        var segment = await FindSegmentAsync(projectId, segmentId, tracking: true);
+
+        if (segment is null)
+        {
+            logger.LogWarning("Segment {SegmentId} not found in project {ProjectId} for deletion", segmentId, projectId);
+            return NotFound();
+        }
+
+        dbContext.Segments.Remove(segment);
+        await dbContext.SaveChangesAsync();
+
+        logger.LogInformation("Deleted segment {SegmentId} in project {ProjectId}", segmentId, projectId);
+
+        return NoContent();
+    }
+
     // The segment with its stations and shots, or null unless both the project is the current user's and the segment
     // belongs to it.
     private async Task<Segment?> FindSegmentAsync(int projectId, int segmentId, bool tracking)

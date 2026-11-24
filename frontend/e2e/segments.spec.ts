@@ -146,6 +146,40 @@ test.describe('Segments', () => {
     await expect(page.getByLabel('Station 1.0 note')).toHaveValue('Line arrow')
   })
 
+  test('adds a segment, deletes it and sees it gone, and the next segment gets a new number', async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${projectId}/segments/new`)
+    await page.getByLabel('Survey date').fill('2026-11-21')
+    await page.getByLabel('Station 1.0 depth (m)').fill('3')
+    await page.getByLabel('Shot 1.1 distance (m)').fill('12.5')
+    await page.getByLabel('Shot 1.1 azimuth (°)').fill('045')
+    await page.getByLabel('Station 1.1 depth (m)').fill('7')
+    await page.getByRole('button', { name: 'Save segment' }).click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+
+    await page.getByRole('link', { name: /Segment 1/ }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Segment 1', exact: true }),
+    ).toBeVisible()
+    const segmentUrl = page.url()
+    await page.getByRole('button', { name: 'Delete segment' }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+    await expect(page.getByText('No segments yet.')).toBeVisible()
+
+    await page.goto(segmentUrl)
+    await expect(
+      page.getByText("That segment doesn't exist. It may have been deleted."),
+    ).toBeVisible()
+
+    await page.goto(`/projects/${projectId}`)
+    await page.getByRole('link', { name: 'Add segment' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Segment 2', exact: true }),
+    ).toBeVisible()
+  })
+
   test('types a whole slate from the keyboard and saves it', async ({
     page,
   }) => {
