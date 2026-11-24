@@ -1,3 +1,4 @@
+import type { KeyboardEvent, RefCallback } from 'react'
 import Box from '@mui/material/Box'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
@@ -16,11 +17,17 @@ export function StationRow({
   station,
   message,
   onChange,
+  inputRef,
+  onReadingKeyDown,
+  onNoteKeyDown,
 }: {
   label: string
   station: DraftStation
   message: (field: 'depth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftStation>) => void
+  inputRef: (field: 'depth' | 'note') => RefCallback<HTMLInputElement>
+  onReadingKeyDown: (field: 'depth', event: KeyboardEvent) => void
+  onNoteKeyDown: (event: KeyboardEvent) => void
 }) {
   return (
     <Box
@@ -56,6 +63,8 @@ export function StationRow({
         size="small"
         label="Depth (m)"
         value={station.depth}
+        inputRef={inputRef('depth')}
+        onKeyDown={(event) => onReadingKeyDown('depth', event)}
         onChange={(event) => onChange({ depth: event.target.value })}
         error={Boolean(message('depth'))}
         helperText={message('depth')}
@@ -72,11 +81,16 @@ export function StationRow({
         size="small"
         label="Note"
         value={station.note}
+        inputRef={inputRef('note')}
+        onKeyDown={onNoteKeyDown}
         onChange={(event) => onChange({ note: event.target.value })}
         error={Boolean(message('note'))}
         helperText={message('note')}
         sx={{ flex: 1, minWidth: 160 }}
-        slotProps={{ htmlInput: { 'aria-label': `${label} note` } }}
+        slotProps={{
+          // Notes are occasional, so Tab skips them. Alt+N in a reading reaches one.
+          htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
+        }}
       />
     </Box>
   )
@@ -87,11 +101,22 @@ export function ShotRow({
   shot,
   message,
   onChange,
+  inputRef,
+  onReadingKeyDown,
+  onNoteKeyDown,
 }: {
   label: string
   shot: DraftShot
   message: (field: 'distance' | 'azimuth' | 'note') => string | undefined
   onChange: (changes: Partial<DraftShot>) => void
+  inputRef: (
+    field: 'distance' | 'azimuth' | 'note',
+  ) => RefCallback<HTMLInputElement>
+  onReadingKeyDown: (
+    field: 'distance' | 'azimuth',
+    event: KeyboardEvent,
+  ) => void
+  onNoteKeyDown: (event: KeyboardEvent) => void
 }) {
   return (
     <Box
@@ -122,6 +147,8 @@ export function ShotRow({
         size="small"
         label="Distance (m)"
         value={shot.distance}
+        inputRef={inputRef('distance')}
+        onKeyDown={(event) => onReadingKeyDown('distance', event)}
         onChange={(event) => onChange({ distance: event.target.value })}
         error={Boolean(message('distance'))}
         helperText={message('distance')}
@@ -138,6 +165,8 @@ export function ShotRow({
         size="small"
         label="Azimuth (°)"
         value={shot.azimuth}
+        inputRef={inputRef('azimuth')}
+        onKeyDown={(event) => onReadingKeyDown('azimuth', event)}
         onChange={(event) => onChange({ azimuth: event.target.value })}
         error={Boolean(message('azimuth'))}
         helperText={message('azimuth')}
@@ -154,11 +183,16 @@ export function ShotRow({
         size="small"
         label="Note"
         value={shot.note}
+        inputRef={inputRef('note')}
+        onKeyDown={onNoteKeyDown}
         onChange={(event) => onChange({ note: event.target.value })}
         error={Boolean(message('note'))}
         helperText={message('note')}
         sx={{ flex: 1, minWidth: 160 }}
-        slotProps={{ htmlInput: { 'aria-label': `${label} note` } }}
+        slotProps={{
+          // Notes are occasional, so Tab skips them. Alt+N in a reading reaches one.
+          htmlInput: { 'aria-label': `${label} note`, tabIndex: -1 },
+        }}
       />
     </Box>
   )

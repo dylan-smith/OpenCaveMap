@@ -188,3 +188,18 @@ export function stationLabel(draft: Draft, index: number) {
 export function shotLabel(draft: Draft, index: number) {
   return `Shot ${draft.number}.${index + 1}`
 }
+
+// The readings in the order they're written on a slate: each station's depth, then the distance and azimuth of the
+// shot leaving it. Enter moves along this order. Tab follows it too, because the notes are out of the Tab order.
+export function readingOrder(draft: Draft) {
+  return draft.stations.flatMap((station, index) => {
+    const shot = draft.shots.at(index)
+    return shot
+      ? [
+          rowField(station.key, 'depth'),
+          rowField(shot.key, 'distance'),
+          rowField(shot.key, 'azimuth'),
+        ]
+      : [rowField(station.key, 'depth')]
+  })
+}
