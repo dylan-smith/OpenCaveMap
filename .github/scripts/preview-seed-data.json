@@ -1,11 +1,111 @@
 [
   {
-    "name": "Crystal Cave resurvey"
+    "name": "Crystal Cave resurvey",
+    "unitSystem": "imperial",
+    "segments": [
+      {
+        "surveyDate": "2026-03-14",
+        "name": "Main line upstream",
+        "note": "Visibility about 40 ft, light flow against us. Started at the T where the main line meets the upstream tunnel.",
+        "stations": [
+          { "depth": 52, "note": "Tie-off at the T" },
+          { "depth": 54 },
+          { "depth": 57 },
+          { "depth": 61, "note": "line arrow" },
+          { "depth": 63 },
+          { "depth": 60, "note": "jump left" },
+          { "depth": 62 }
+        ],
+        "shots": [
+          { "distance": 40, "azimuth": 45 },
+          { "distance": 30, "azimuth": 62 },
+          { "distance": 50, "azimuth": 78 },
+          { "distance": 37, "azimuth": 110, "note": "restriction" },
+          { "distance": 40, "azimuth": 95 },
+          { "distance": 20, "azimuth": 70 }
+        ]
+      },
+      {
+        "surveyDate": "2026-03-14",
+        "name": null,
+        "note": null,
+        "stations": [
+          { "depth": 60, "note": "Jump from the main line" },
+          { "depth": 64 },
+          { "depth": 66 },
+          { "depth": 65, "note": "line ends, passage continues" }
+        ],
+        "shots": [
+          { "distance": 20, "azimuth": 350 },
+          { "distance": 30, "azimuth": 5, "note": "low bedding plane" },
+          { "distance": 25, "azimuth": 330 }
+        ]
+      },
+      {
+        "surveyDate": "2026-04-02",
+        "name": "Downstream to the sump",
+        "note": "Second dive of the resurvey. Silted out on the way back, so the last shot was checked on the next dive.",
+        "stations": [
+          { "depth": 52 },
+          { "depth": 48 },
+          { "depth": 45, "note": "cookie" },
+          { "depth": 41 },
+          { "depth": 38, "note": "Sump pool, surface above" }
+        ],
+        "shots": [
+          { "distance": 50, "azimuth": 225 },
+          { "distance": 40, "azimuth": 210 },
+          { "distance": 60, "azimuth": 238 },
+          { "distance": 33, "azimuth": 190, "note": "restriction" }
+        ]
+      }
+    ]
   },
   {
-    "name": "Blue Spring sump exploration"
+    "name": "Blue Spring sump exploration",
+    "unitSystem": "metric",
+    "segments": [
+      {
+        "surveyDate": "2026-05-09",
+        "name": "Sump 1 main line",
+        "note": "Surveyed on the way out after the push dive. Visibility 15 m.",
+        "stations": [
+          { "depth": 3.5, "note": "Primary tie-off in the basin" },
+          { "depth": 9 },
+          { "depth": 14.5 },
+          { "depth": 18.5, "note": "line arrow" },
+          { "depth": 21 },
+          { "depth": 21.5 }
+        ],
+        "shots": [
+          { "distance": 12, "azimuth": 160 },
+          { "distance": 15, "azimuth": 172 },
+          { "distance": 9, "azimuth": 148, "note": "restriction" },
+          { "distance": 18, "azimuth": 135 },
+          { "distance": 12, "azimuth": 141 }
+        ]
+      },
+      {
+        "surveyDate": "2026-05-23",
+        "name": null,
+        "note": null,
+        "stations": [
+          { "depth": 21.5 },
+          { "depth": 23 },
+          { "depth": 24.5, "note": "jump right" },
+          { "depth": 26 }
+        ],
+        "shots": [
+          { "distance": 15, "azimuth": 128 },
+          { "distance": 6.5, "azimuth": 99 },
+          { "distance": 12, "azimuth": 117 }
+        ]
+      }
+    ]
   },
   {
-    "name": "Limestone Ridge karst inventory"
+    "name": "Limestone Ridge karst inventory",
+    "unitSystem": "metric",
+    "segments": []
   }
 ]
