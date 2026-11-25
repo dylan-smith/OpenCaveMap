@@ -19,6 +19,7 @@ import {
 import { trackEvent, trackException } from '../telemetry'
 import NotFoundPage from './NotFoundPage'
 import { parseId } from './parseId'
+import { useReadingKeys } from './readingKeys'
 import {
   fieldsToFix,
   newShot,
@@ -43,6 +44,11 @@ function SegmentEntry({ projectId }: { projectId: number }) {
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const [messages, setMessages] = useState<Messages | null>(null)
+
+  const { inputRef, handleReadingKeyDown, handleNoteKeyDown } = useReadingKeys(
+    draft,
+    addShotAndStation,
+  )
 
   useEffect(() => {
     // Ignore a response that arrives after the user has left the page.
@@ -141,15 +147,19 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     return messages?.fields[field]
   }
 
+  // Returns the new shot, so the keyboard can move to it once it's on the screen.
   function addShotAndStation() {
+    const station = newStation()
+    const shot = newShot()
     setDraft(
       (previous) =>
         previous && {
           ...previous,
-          stations: [...previous.stations, newStation()],
-          shots: [...previous.shots, newShot()],
+          stations: [...previous.stations, station],
+          shots: [...previous.shots, shot],
         },
     )
+    return shot
   }
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
@@ -267,6 +277,18 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                         onChange={(changes) =>
                           updateStation(station.key, changes)
                         }
+                        inputRef={(field) =>
+                          inputRef(rowField(station.key, field))
+                        }
+                        onReadingKeyDown={(field, event) =>
+                          handleReadingKeyDown(station.key, field, event)
+                        }
+                        onNoteKeyDown={(event) =>
+                          handleNoteKeyDown(
+                            rowField(station.key, 'depth'),
+                            event,
+                          )
+                        }
                       />
                       {shot && (
                         <ShotRow
@@ -276,6 +298,18 @@ function SegmentEntry({ projectId }: { projectId: number }) {
                             message(rowField(shot.key, field))
                           }
                           onChange={(changes) => updateShot(shot.key, changes)}
+                          inputRef={(field) =>
+                            inputRef(rowField(shot.key, field))
+                          }
+                          onReadingKeyDown={(field, event) =>
+                            handleReadingKeyDown(shot.key, field, event)
+                          }
+                          onNoteKeyDown={(event) =>
+                            handleNoteKeyDown(
+                              rowField(shot.key, 'azimuth'),
+                              event,
+                            )
+                          }
                         />
                       )}
                     </Box>
