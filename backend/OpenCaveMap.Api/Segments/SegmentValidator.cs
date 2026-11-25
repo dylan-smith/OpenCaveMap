@@ -6,8 +6,8 @@ using OpenCaveMap.Api.Validation;
 namespace OpenCaveMap.Api.Segments;
 
 /// <summary>
-/// A segment request that has passed every rule, ready to store. Readings are rounded to what the database keeps, and
-/// names and notes are trimmed, with blank ones absent.
+/// A segment request that has passed every rule, ready to store. Readings are converted to metres and rounded to what
+/// the database keeps, and names and notes are trimmed, with blank ones absent.
 /// </summary>
 public sealed record ValidSegment(
     DateOnly SurveyDate,
@@ -51,6 +51,10 @@ public static class SegmentValidator
         var name = FieldRules.OptionalText(request.Name, "name", "Name", NameMaxLength, errors);
         var note = FieldRules.OptionalText(request.Note, "note", "Note", SegmentNoteMaxLength, errors);
 
+        // Optional for now: the entry screen doesn't name one yet, and a request without one is read as metres, as
+        // every request was before projects had a unit system.
+        var unitSystem = request.UnitSystem ?? UnitSystem.Metric;
+
         var stationRequests = request.Stations ?? [];
         var shotRequests = request.Shots ?? [];
 
@@ -65,11 +69,13 @@ public static class SegmentValidator
         }
 
         var stations = stationRequests
-            .Select((station, index) => ValidateStation(station, FieldRules.ItemKey("stations", index), errors))
+            .Select((station, index) =>
+                ValidateStation(station, FieldRules.ItemKey("stations", index), unitSystem, errors))
             .ToList();
 
         var shots = shotRequests
-            .Select((shot, index) => ValidateShot(shot, FieldRules.ItemKey("shots", index), errors))
+            .Select((shot, index) =>
+                ValidateShot(shot, FieldRules.ItemKey("shots", index), unitSystem, errors))
             .ToList();
 
         if (replacing is not null)
@@ -86,23 +92,25 @@ public static class SegmentValidator
             : null;
     }
 
-    private static ValidStation? ValidateStation(StationRequest? station, string path, ModelStateDictionary errors)
+    private static ValidStation? ValidateStation(
+        StationRequest? station, string path, UnitSystem unitSystem, ModelStateDictionary errors)
     {
         // A missing station is read as a blank one, so its depth is reported as required.
         station ??= new StationRequest();
 
-        var depth = ValidateLength(station.Depth, $"{path}.depth", "Depth", allowZero: true, errors);
+        var depth = ValidateLength(station.Depth, $"{path}.depth", "Depth", allowZero: true, unitSystem, errors);
         var note = FieldRules.OptionalText(station.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
         return depth is decimal value ? new ValidStation(station.Id, value, note) : null;
     }
 
-    private static ValidShot? ValidateShot(ShotRequest? shot, string path, ModelStateDictionary errors)
+    private static ValidShot? ValidateShot(
+        ShotRequest? shot, string path, UnitSystem unitSystem, ModelStateDictionary errors)
     {
         // A missing shot is read as a blank one, so its distance and azimuth are reported as required.
         shot ??= new ShotRequest();
 
-        var distance = ValidateLength(shot.Distance, $"{path}.distance", "Distance", allowZero: false, errors);
+        var distance = ValidateLength(shot.Distance, $"{path}.distance", "Distance", allowZero: false, unitSystem, errors);
         var azimuth = ValidateAzimuth(shot.Azimuth, $"{path}.azimuth", errors);
         var note = FieldRules.OptionalText(shot.Note, $"{path}.note", "Note", RowNoteMaxLength, errors);
 
@@ -138,15 +146,16 @@ public static class SegmentValidator
         }
     }
 
+    // Converted to metres before it's rounded and checked, so the limits apply to the value that's stored.
     private static decimal? ValidateLength(
-        decimal? sent, string key, string reading, bool allowZero, ModelStateDictionary errors)
+        decimal? sent, string key, string reading, bool allowZero, UnitSystem unitSystem, ModelStateDictionary errors)
     {
         if (FieldRules.Required(sent, key, reading, errors) is not decimal value)
         {
             return null;
         }
 
-        var metres = Math.Round(value, LengthDecimals, MidpointRounding.AwayFromZero);
+        var metres = Math.Round(LengthUnits.ToMetres(value, unitSystem), LengthDecimals, MidpointRounding.AwayFromZero);
 
         if (allowZero && value < 0)
         {

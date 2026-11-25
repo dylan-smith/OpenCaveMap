@@ -15,6 +15,11 @@ public class Project
     [JsonIgnore]
     public int UserId { get; set; }
 
+    /// <summary>
+    /// How the project's depths and distances are entered and shown. They're stored in metres either way.
+    /// </summary>
+    public UnitSystem UnitSystem { get; set; } = UnitSystem.Metric;
+
     // The number the project's last new segment was given. Callers get the next one from the blank new segment.
     [JsonIgnore]
     public int LastSegmentNumber { get; set; }

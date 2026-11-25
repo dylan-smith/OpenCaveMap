@@ -68,7 +68,8 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
 
         var project = new Project
         {
-            Name = trimmedName
+            Name = trimmedName,
+            UnitSystem = request.UnitSystem ?? UnitSystem.Metric,
         };
 
         dbContext.Projects.Add(project);
@@ -122,6 +123,7 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         }
 
         project.Name = trimmedName;
+        project.UnitSystem = request.UnitSystem ?? project.UnitSystem;
 
         try
         {

@@ -86,6 +86,12 @@ public class OpenCaveMapDbContext(DbContextOptions<OpenCaveMapDbContext> options
             .HasMaxLength(200)
             .IsRequired();
 
+        // Stored by name, so the database reads the same as the JSON.
+        modelBuilder.Entity<Project>()
+            .Property(project => project.UnitSystem)
+            .HasConversion<string>()
+            .HasMaxLength(10);
+
         modelBuilder.Entity<Segment>(segment =>
         {
             // Every action looks the project up first. This is the guard behind that: a query for segments only

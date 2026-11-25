@@ -25,7 +25,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         AssertJson(
             """
             {
-              "id": null, "number": 1, "surveyDate": null, "name": null, "note": null,
+              "id": null, "number": 1, "surveyDate": null, "name": null, "note": null, "unitSystem": "metric",
               "stations": [
                 { "id": null, "depth": null, "note": null },
                 { "id": null, "depth": null, "note": null }
@@ -47,6 +47,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", new JsonObject
         {
             ["surveyDate"] = "2026-11-21",
+            ["unitSystem"] = "metric",
             ["name"] = "  Main line upstream  ",
             ["note"] = "Good visibility",
             ["stations"] = new JsonArray(
@@ -71,7 +72,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         AssertJson(
             """
             {
-              "number": 1, "surveyDate": "2026-11-21", "name": "Main line upstream", "note": "Good visibility",
+              "number": 1, "surveyDate": "2026-11-21", "name": "Main line upstream", "note": "Good visibility", "unitSystem": "metric",
               "stations": [
                 { "depth": 3, "note": "Line arrow" },
                 { "depth": 12.5, "note": null },
@@ -127,9 +128,9 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         AssertJson(
             $$"""
             [
-              { "id": {{sameDaySecond["id"]}}, "number": 3, "name": "Side passage", "surveyDate": "2026-11-21", "stationCount": 4, "totalLength": 15 },
-              { "id": {{sameDayFirst["id"]}}, "number": 2, "name": null, "surveyDate": "2026-11-21", "stationCount": 2, "totalLength": 30 },
-              { "id": {{older["id"]}}, "number": 1, "name": "Downstream", "surveyDate": "2026-03-02", "stationCount": 3, "totalLength": 12.504 }
+              { "id": {{sameDaySecond["id"]}}, "number": 3, "name": "Side passage", "surveyDate": "2026-11-21", "stationCount": 4, "totalLength": 15, "unitSystem": "metric" },
+              { "id": {{sameDayFirst["id"]}}, "number": 2, "name": null, "surveyDate": "2026-11-21", "stationCount": 2, "totalLength": 30, "unitSystem": "metric" },
+              { "id": {{older["id"]}}, "number": 1, "name": "Downstream", "surveyDate": "2026-03-02", "stationCount": 3, "totalLength": 12.504, "unitSystem": "metric" }
             ]
             """,
             segments);
@@ -369,7 +370,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         AssertJson(
             $$"""
             {
-              "id": {{created["id"]}}, "number": 1, "surveyDate": "2026-11-21", "name": "Main line", "note": null,
+              "id": {{created["id"]}}, "number": 1, "surveyDate": "2026-11-21", "name": "Main line", "note": null, "unitSystem": "metric",
               "stations": [
                 { "id": {{created["stations"]![0]!["id"]}}, "depth": 10, "note": null },
                 { "id": {{created["stations"]![1]!["id"]}}, "depth": 10, "note": null },
@@ -422,7 +423,7 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         var expected =
             $$"""
             {
-              "id": {{segment["id"]}}, "number": 2, "surveyDate": "2026-03-02", "name": "Upstream", "note": "Silty",
+              "id": {{segment["id"]}}, "number": 2, "surveyDate": "2026-03-02", "name": "Upstream", "note": "Silty", "unitSystem": "metric",
               "stations": [
                 { "id": {{segment["stations"]![0]!["id"]}}, "depth": 10, "note": null },
                 { "id": {{segment["stations"]![1]!["id"]}}, "depth": 21.5, "note": "Jump left" }
@@ -749,12 +750,262 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/projects/{projectId}/segments")).StatusCode);
     }
 
+    [Fact]
+    public async Task NewSegment_IsInTheProjectsUnitSystem()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+
+        var segment = await GetJsonAsync(client, $"/api/projects/{projectId}/segments/new");
+
+        Assert.Equal("imperial", (string?)segment["unitSystem"]);
+    }
+
+    [Fact]
+    public async Task ReadingsTypedInFeet_AreReturnedInFeet_AndInMetresAfterSwitchingToMetric_AndInFeetAgainAfterSwitchingBack()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+
+        var created = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [30m, 12.5m], unitSystem: "imperial");
+        var url = $"/api/projects/{projectId}/segments/{created["id"]}";
+        var reopened = await GetJsonAsync(client, url);
+        await SetUnitSystemAsync(client, projectId, "metric");
+        var inMetres = await GetJsonAsync(client, url);
+        var listedInMetres = await GetJsonAsync(client, $"/api/projects/{projectId}/segments");
+        await SetUnitSystemAsync(client, projectId, "imperial");
+        var inFeetAgain = await GetJsonAsync(client, url);
+        var listedInFeet = await GetJsonAsync(client, $"/api/projects/{projectId}/segments");
+
+        foreach (var segment in new[] { created, reopened, inFeetAgain })
+        {
+            Assert.Equal("imperial", (string?)segment["unitSystem"]);
+            Assert.Equal([30m, 12.5m], Distances(segment));
+            Assert.Equal([10m, 10m, 10m], Depths(segment));
+        }
+
+        Assert.Equal("metric", (string?)inMetres["unitSystem"]);
+        // 9.144 and 3.81 metres, and depths of 3.048.
+        Assert.Equal([9.144m, 3.81m], Distances(inMetres));
+        Assert.Equal([3.048m, 3.048m, 3.048m], Depths(inMetres));
+        Assert.Equal([90m, 90m], inMetres["shots"]!.AsArray().Select(row => (decimal)row!["azimuth"]!));
+        // 42.5 feet is 12.954 metres.
+        Assert.Equal(12.954m, (decimal)listedInMetres[0]!["totalLength"]!);
+        Assert.Equal("metric", (string?)listedInMetres[0]!["unitSystem"]);
+        Assert.Equal(42.5m, (decimal)listedInFeet[0]!["totalLength"]!);
+        Assert.Equal("imperial", (string?)listedInFeet[0]!["unitSystem"]);
+    }
+
+    // Nothing is rounded on the way out: 12.3 metres is as many feet as a decimal holds.
+    [Theory]
+    [InlineData("9.144", "30")]
+    [InlineData("0.04572", "0.15")]
+    [InlineData("12.3", "40.354330708661417322834645669")]
+    public async Task ADistanceTypedInMetres_IsReturnedInFeet_Unrounded(string typed, string feet)
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var created = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [Number(typed)]);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+
+        var segment = await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{created["id"]}");
+
+        Assert.Equal([Number(feet)], Distances(segment));
+    }
+
+    // Six decimal places in metres are enough for any reading typed in feet with up to two decimals to come back as it
+    // was typed.
+    [Theory]
+    [InlineData("30.25")]
+    [InlineData("12.34")]
+    [InlineData("0.01")]
+    [InlineData("328083.98")]
+    public async Task ADistanceTypedInFeet_IsReturnedInFeet_AsTyped(string typed)
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+
+        var segment = await CreateSegmentAsync(
+            client, projectId, "2026-11-21", distances: [Number(typed)], unitSystem: "imperial");
+
+        Assert.Equal([Number(typed)], Distances(segment));
+        Assert.Equal([Number(typed)], Distances(await GetJsonAsync(client, $"/api/projects/{projectId}/segments/{segment["id"]}")));
+    }
+
+    [Fact]
+    public async Task Create_ConvertsWithTheRequestsUnitSystem_AndAnswersInTheProjects()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [30m], unitSystem: "imperial");
+
+        Assert.Equal("metric", (string?)segment["unitSystem"]);
+        Assert.Equal([9.144m], Distances(segment));
+    }
+
+    [Fact]
+    public async Task Replace_ConvertsWithTheRequestsUnitSystem_WhenTheProjectsChangedWhileTheSegmentWasOpen()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [9.144m, 4m]);
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var body = await GetJsonAsync(client, url);
+        // Switched in another tab while the segment was open in metres.
+        await SetUnitSystemAsync(client, projectId, "imperial");
+        body["shots"]![1]!["distance"] = 3.048;
+
+        var saved = await PutJsonAsync(client, url, body);
+
+        Assert.Equal("imperial", (string?)saved["unitSystem"]);
+        Assert.Equal([30m, 10m], Distances(saved));
+        await SetUnitSystemAsync(client, projectId, "metric");
+        Assert.Equal([9.144m, 3.048m], Distances(await GetJsonAsync(client, url)));
+    }
+
+    // The entry screen doesn't name a unit system yet, and what it sends is in metres.
+    [Fact]
+    public async Task CreateAndReplace_ReadARequestThatNamesNoUnitSystemAsMetres()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+        var body = ValidSegmentBody();
+        body.Remove("unitSystem");
+        body["shots"]![0]!["distance"] = 9.144;
+
+        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", body);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var created = (await response.Content.ReadFromJsonAsync<JsonNode>())!;
+        body["shots"]![0]!["distance"] = 3.048;
+        var replaced = await PutJsonAsync(client, $"/api/projects/{projectId}/segments/{created["id"]}", body);
+
+        // 9.144 metres is 30 feet, and 3.048 metres is 10.
+        Assert.Equal([30m], Distances(created));
+        Assert.Equal([10m], Distances(replaced));
+    }
+
+    // A unit system is sent by its name, exactly as responses write it.
+    [Theory]
+    [InlineData("\"feet\"")]
+    [InlineData("\"Metric\"")]
+    [InlineData("\"\"")]
+    [InlineData("1")]
+    public async Task CreateAndReplace_RejectAnUnknownUnitSystem(string json)
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var createBody = ValidSegmentBody();
+        createBody["unitSystem"] = JsonNode.Parse(json);
+        var replaceBody = segment.DeepClone();
+        replaceBody["name"] = "Changed";
+        replaceBody["unitSystem"] = JsonNode.Parse(json);
+
+        var created = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", createBody);
+        var replaced = await client.PutAsJsonAsync(url, replaceBody);
+
+        Assert.Equal(HttpStatusCode.BadRequest, created.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, replaced.StatusCode);
+        Assert.Single((await GetJsonAsync(client, $"/api/projects/{projectId}/segments")).AsArray());
+        AssertJson(segment.ToJsonString(), await GetJsonAsync(client, url));
+    }
+
+    // 328,084 feet is 100,000.0032 metres, and 328,083 feet is 99,999.6984.
+    [Theory]
+    [InlineData("stations[1].depth", "Depth")]
+    [InlineData("shots[0].distance", "Distance")]
+    public async Task TheUpperLimit_AppliesToTheValueInMetres(string path, string reading)
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var tooLong = ValidSegmentBody();
+        tooLong["unitSystem"] = "imperial";
+        SetField(tooLong, path, 328084);
+        var longest = ValidSegmentBody();
+        longest["unitSystem"] = "imperial";
+        SetField(longest, path, 328083);
+
+        var rejected = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", tooLong);
+        var accepted = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", longest);
+
+        await AssertValidationErrorsAsync(rejected, new() { [path] = [$"{reading} must be less than 100,000 m."] });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        Assert.Equal(99999.6984m, (decimal)GetField((await accepted.Content.ReadFromJsonAsync<JsonNode>())!, path)!);
+    }
+
+    // What comes back in the other unit system is unrounded, so sending it back changes nothing that's stored.
+    [Fact]
+    public async Task Replace_WithDistancesAsReturnedInFeet_StoresThemAsTheyWere()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [12.3m, 9.144m]);
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        await SetUnitSystemAsync(client, projectId, "imperial");
+
+        await PutJsonAsync(client, url, await GetJsonAsync(client, url));
+        await SetUnitSystemAsync(client, projectId, "metric");
+
+        Assert.Equal([12.3m, 9.144m], Distances(await GetJsonAsync(client, url)));
+        Assert.Equal(21.444m, await TotalLengthAsync(client, projectId));
+    }
+
+    [Fact]
+    public async Task Replace_WithDistancesTypedInFeet_AsReturnedInMetres_StoresThemAsTheyWere()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [30m, 40.4m], unitSystem: "imperial");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        await SetUnitSystemAsync(client, projectId, "metric");
+        var inMetres = await GetJsonAsync(client, url);
+        Assert.Equal([9.144m, 12.31392m], Distances(inMetres));
+
+        await PutJsonAsync(client, url, inMetres);
+        await SetUnitSystemAsync(client, projectId, "imperial");
+
+        Assert.Equal([30m, 40.4m], Distances(await GetJsonAsync(client, url)));
+        Assert.Equal(70.4m, await TotalLengthAsync(client, projectId));
+    }
+
+    [Fact]
+    public async Task Replace_ConvertsAChangedReadingAndANewShot_FromWhatWasTyped()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var projectId = await CreateProjectAsync(client);
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21", distances: [12.3m, 12.3m]);
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        await SetUnitSystemAsync(client, projectId, "imperial");
+        var body = await GetJsonAsync(client, url);
+        body["shots"]![1]!["distance"] = 40;
+        body["stations"]!.AsArray().Add(new JsonObject { ["id"] = null, ["depth"] = 20, ["note"] = null });
+        body["shots"]!.AsArray().Add(new JsonObject { ["id"] = null, ["distance"] = 40.4, ["azimuth"] = 90, ["note"] = null });
+
+        await PutJsonAsync(client, url, body);
+        await SetUnitSystemAsync(client, projectId, "metric");
+
+        // The first went back as it was returned, the changed one is 12.192 m, and the new one 12.31392 m.
+        var saved = await GetJsonAsync(client, url);
+        Assert.Equal([12.3m, 12.192m, 12.31392m], Distances(saved));
+        Assert.Equal(6.096m, (decimal)saved["stations"]![3]!["depth"]!);
+        Assert.Equal(36.80592m, await TotalLengthAsync(client, projectId));
+    }
+
     // Two stations and one shot, all valid.
     private static JsonObject ValidSegmentBody()
     {
         return new JsonObject
         {
             ["surveyDate"] = "2026-11-21",
+            ["unitSystem"] = "metric",
             ["name"] = "Main line",
             ["note"] = "Good visibility",
             ["stations"] = new JsonArray(
@@ -801,12 +1052,18 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
     }
 
     private static async Task<JsonNode> CreateSegmentAsync(
-        HttpClient client, int projectId, string surveyDate, string? name = null, decimal[]? distances = null)
+        HttpClient client,
+        int projectId,
+        string surveyDate,
+        string? name = null,
+        decimal[]? distances = null,
+        string unitSystem = "metric")
     {
         distances ??= [5];
         var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", new
         {
             surveyDate,
+            unitSystem,
             name,
             stations = Enumerable.Range(0, distances.Length + 1).Select(_ => new { depth = 10 }),
             shots = distances.Select(distance => new { distance, azimuth = 90 }),
@@ -834,6 +1091,17 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         return segment["shots"]!.AsArray().Select(row => (decimal)row!["distance"]!);
     }
 
+    // A decimal can't be written in a test's attribute.
+    private static decimal Number(string text)
+    {
+        return decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static IEnumerable<decimal> Depths(JsonNode segment)
+    {
+        return segment["stations"]!.AsArray().Select(row => (decimal)row!["depth"]!);
+    }
+
     private static IEnumerable<int> Ids(JsonNode? rows)
     {
         return rows!.AsArray().Select(row => (int)row!["id"]!);
@@ -845,6 +1113,13 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var project = await response.Content.ReadFromJsonAsync<JsonObject>();
         return (int)project!["id"]!;
+    }
+
+    private static async Task SetUnitSystemAsync(HttpClient client, int projectId, string unitSystem)
+    {
+        var project = await GetJsonAsync(client, $"/api/projects/{projectId}");
+        var response = await client.PutAsJsonAsync($"/api/projects/{projectId}", new { name = (string?)project["name"], unitSystem });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private static async Task<JsonNode> GetJsonAsync(HttpClient client, string url)
