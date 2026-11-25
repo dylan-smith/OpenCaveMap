@@ -4,12 +4,12 @@ import type { RouteObject } from 'react-router'
 import { routes } from '../routes'
 
 // Renders the app at an address with the same routes and router mode as production. Extra pages are added
-// under the app, next to its own.
+// under the app, next to its own. The router is returned too, so a test can read the address or go back.
 export function renderAt(path: string, extraPages: RouteObject[] = []) {
   const [{ children: pages, ...app }] = routes
   const router = createMemoryRouter(
     [{ ...app, children: [...extraPages, ...pages] }],
     { initialEntries: [path] },
   )
-  return render(<RouterProvider router={router} />)
+  return { ...render(<RouterProvider router={router} />), router }
 }

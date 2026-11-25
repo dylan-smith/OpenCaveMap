@@ -190,6 +190,12 @@ export function toRequest(draft: Draft): SegmentRequest {
   }
 }
 
+// What a save would send, so two drafts with the same entries match even if their rows' keys or review flags differ.
+// Comparing with this tells whether anything has changed since the screen opened.
+export function comparisonText(draft: Draft) {
+  return JSON.stringify(toRequest(draft))
+}
+
 // The messages from a rejected save, placed on the screen. fields holds one message per field, keyed by surveyDate,
 // name or note, or by a row's key and the field's name, so a message stays with the row it was reported for even if
 // rows move. general holds the messages that aren't tied to one field.
