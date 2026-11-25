@@ -227,4 +227,98 @@ test.describe('Segments', () => {
     await expect(segment).toHaveCount(1)
     await expect(segment).toContainText('2026-11-21 · 3 stations · 22.5 m')
   })
+
+  test('reopens a saved segment, inserts a station in the middle, checks the flagged shot, and sees the result when it is reopened', async ({
+    page,
+    request,
+  }) => {
+    const segmentsUrl = `${projectsApiUrl}/${projectId}/segments`
+    type SavedSegment = {
+      id: number
+      stations: { id: number }[]
+      shots: { id: number }[]
+    }
+    const created = await request.post(segmentsUrl, {
+      data: {
+        surveyDate: '2026-11-21',
+        stations: [
+          { depth: 3, note: 'Line arrow' },
+          { depth: 7 },
+          { depth: 9, note: 'Jump left' },
+        ],
+        shots: [
+          { distance: 10, azimuth: 45 },
+          { distance: 20, azimuth: 90, note: 'Restriction' },
+        ],
+      },
+    })
+    expect(created.ok()).toBe(true)
+    const before = (await created.json()) as SavedSegment
+
+    await page.goto(`/projects/${projectId}/segments/${before.id}`)
+    await page
+      .getByRole('button', { name: 'Insert station after Station 1.1' })
+      .click()
+    await expect(page.getByLabel('Shot 1.2 distance (m)')).toBeFocused()
+    await page.keyboard.type('5')
+    await page.keyboard.press('Tab')
+    await page.keyboard.type('180')
+    await page.keyboard.press('Tab')
+    await page.keyboard.type('8')
+
+    // The shot that used to leave Station 1.1 now leaves the new station.
+    const flagged = page.getByLabel('Shot 1.3 distance (m)')
+    await expect(flagged).toHaveValue('20')
+    await expect(flagged).toHaveAccessibleDescription(/need checking/)
+    await page.getByRole('button', { name: 'Save segment' }).click()
+    await expect(page.getByRole('alert')).toContainText(
+      '1 shot needs checking.',
+    )
+    await expect(page).toHaveURL(/\/segments\/\d+$/)
+
+    await flagged.fill('15')
+    await expect(page.getByRole('alert')).toBeHidden()
+    await page.getByRole('button', { name: 'Save segment' }).click()
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}$`))
+    await expect(
+      page.getByRole('list', { name: 'Segments' }).getByRole('listitem'),
+    ).toContainText('2026-11-21 · 4 stations · 30 m')
+
+    await page.getByRole('link', { name: /Segment 1/ }).click()
+    const values = [
+      ['Station 1.0 depth (m)', '3'],
+      ['Station 1.0 note', 'Line arrow'],
+      ['Shot 1.1 distance (m)', '10'],
+      ['Station 1.1 depth (m)', '7'],
+      ['Shot 1.2 distance (m)', '5'],
+      ['Shot 1.2 azimuth (°)', '180'],
+      ['Station 1.2 depth (m)', '8'],
+      ['Shot 1.3 distance (m)', '15'],
+      ['Shot 1.3 note', 'Restriction'],
+      ['Station 1.3 depth (m)', '9'],
+      ['Station 1.3 note', 'Jump left'],
+    ]
+    for (const [name, value] of values) {
+      await expect(page.getByLabel(name, { exact: true })).toHaveValue(value)
+    }
+    await expect(
+      page.getByRole('button', { name: /distance and azimuth are right/ }),
+    ).toHaveCount(0)
+
+    // The stations and shots that were there before keep their identity in their new places.
+    const after = (await (
+      await request.get(`${segmentsUrl}/${before.id}`)
+    ).json()) as SavedSegment
+    expect(after.stations.map((station) => station.id)).toEqual([
+      before.stations[0].id,
+      before.stations[1].id,
+      expect.any(Number),
+      before.stations[2].id,
+    ])
+    expect(after.shots.map((shot) => shot.id)).toEqual([
+      before.shots[0].id,
+      expect.any(Number),
+      before.shots[1].id,
+    ])
+  })
 })

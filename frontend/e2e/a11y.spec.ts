@@ -125,6 +125,36 @@ test.describe('Accessibility', () => {
     }
   })
 
+  test('segment entry screen with a flagged shot has no detectable accessibility violations', async ({
+    page,
+    request,
+  }) => {
+    const response = await request.post(projectsApiUrl, {
+      data: { name: `A11y flagged project ${Date.now()}` },
+    })
+    expect(response.ok()).toBe(true)
+    const { id } = (await response.json()) as { id: number }
+
+    try {
+      await page.goto(`/projects/${id}/segments/new`)
+      await expect(
+        page.getByRole('heading', { name: 'Segment 1', exact: true }),
+      ).toBeVisible()
+      await page
+        .getByRole('button', { name: 'Insert station after Station 1.0' })
+        .click()
+      await page.getByRole('button', { name: 'Save segment' }).click()
+      await expect(page.getByRole('alert')).toContainText(
+        '1 shot needs checking.',
+      )
+      const results = await new AxeBuilder({ page }).analyze()
+
+      expect(results.violations).toEqual([])
+    } finally {
+      await request.delete(`${projectsApiUrl}/${id}`)
+    }
+  })
+
   test('not found page has no detectable accessibility violations', async ({
     page,
   }) => {
