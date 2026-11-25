@@ -18,7 +18,7 @@ vi.mock('../telemetry', () => ({
   trackPageView: vi.fn(),
 }))
 
-// The project page also lists the project's segments, which segments.test.tsx covers, so these tests answer that
+// The project page also lists the project's segments, which projectSegments.test.tsx covers, so these tests answer that
 // request with an empty list and leave every other request to the handler.
 function mockFetch(
   handler: (url: string, init?: RequestInit) => Promise<Response>,
