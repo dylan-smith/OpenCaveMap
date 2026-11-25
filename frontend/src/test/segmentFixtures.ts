@@ -153,6 +153,13 @@ export const rejectedSegment = {
   stations: ['A segment needs at least two stations.'],
 }
 
+// Whether the browser would show its own leave prompt on closing or reloading the tab.
+export function wouldPrompt() {
+  const event = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 export async function openNewSegment() {
   renderAt('/projects/7/segments/new')
   return screen.findByRole('heading', { name: 'Segment 4' })

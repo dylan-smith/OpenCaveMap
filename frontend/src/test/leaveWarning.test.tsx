@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSession } from '../auth/session'
 import { unreachable } from './mockFetch'
 import { renderAt } from './renderAt'
-import { mockApi, rejected } from './segmentFixtures'
+import { mockApi, rejected, wouldPrompt } from './segmentFixtures'
 
 vi.mock('../telemetry', () => ({
   trackEvent: vi.fn(),
@@ -292,13 +292,6 @@ describe('leaving with unsaved entries', () => {
   })
 
   describe('closing or reloading the tab', () => {
-    // Whether the browser would show its own leave prompt.
-    function wouldPrompt() {
-      const event = new Event('beforeunload', { cancelable: true })
-      window.dispatchEvent(event)
-      return event.defaultPrevented
-    }
-
     it('closes without a prompt when nothing has changed', async () => {
       mockApi()
       await openSavedSegment()
