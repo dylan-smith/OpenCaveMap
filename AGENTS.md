@@ -74,12 +74,12 @@ npm run test:e2e
   that is the only check it makes.
 - How a value is shown is rendering, so it's the frontend's: rounding, number formatting, and labels made from data
   the API already returns. The API returns values unrounded and unformatted.
-- Validate a request in a validator beside its entity (`Segments/SegmentValidator.cs`), not with validation
-  attributes. Its `Validate` method returns a `ValidX` record, the checked values ready to store, or null after adding
-  a message for every problem, keyed by the field's camelCase path (`stations[1].depth`), and the controller then
-  returns `ValidationProblem(ModelState)`. Request fields are all optional, so the validator writes every message.
-  Checks that every entity shares, such as required values and trimmed text, are in `Validation/FieldRules.cs`, and
-  anything a rule needs from the database is passed in.
+- Validate a request in a validator beside its entity (`Projects/ProjectValidator.cs`,
+  `Segments/SegmentValidator.cs`), not with validation attributes. Its `Validate` method returns a `ValidX` record,
+  the checked values ready to store, or null after adding a message for every problem, keyed by the field's camelCase
+  path (`stations[1].depth`), and the controller then returns `ValidationProblem(ModelState)`. Request fields are all
+  optional, so the validator writes every message. Checks that every entity shares, such as required values and
+  trimmed text, are in `Validation/FieldRules.cs`, and anything a rule needs from the database is passed in.
 - Formatting is enforced: `.editorconfig` + `dotnet format` for C#, Prettier + ESLint for the
   frontend. Line endings are LF.
 - Warnings fail the build. The backend uses `AnalysisLevel` `latest-recommended` with

@@ -5,11 +5,60 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace OpenCaveMap.Api.Tests;
 
-// The project's unit system, over HTTP. ProjectsControllerTests covers the rest of the projects controller.
+// The project's unit system and validation messages, over HTTP. ProjectsControllerTests covers the rest of the
+// projects controller.
 public class ProjectsApiTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly WebApplicationFactory<Program> webFactory = TestApi.Configure(factory);
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{ "name": null }""")]
+    [InlineData("""{ "name": "" }""")]
+    [InlineData("""{ "name": "   " }""")]
+    public async Task CreateAndUpdate_RejectAMissingOrBlankName(string json)
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var id = await CreateProjectAsync(client);
+
+        var created = await client.PostAsJsonAsync("/api/projects", JsonNode.Parse(json));
+        var updated = await client.PutAsJsonAsync($"/api/projects/{id}", JsonNode.Parse(json));
+
+        await AssertValidationErrorsAsync(created, new() { ["name"] = ["Project name is required."] });
+        await AssertValidationErrorsAsync(updated, new() { ["name"] = ["Project name is required."] });
+        var project = Assert.Single((await GetJsonAsync(client, "/api/projects")).AsArray())!;
+        Assert.Equal("Cave", (string?)project["name"]);
+    }
+
+    [Fact]
+    public async Task CreateAndUpdate_RejectANameOver200Characters()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var id = await CreateProjectAsync(client);
+        var name = new string('a', 201);
+
+        var created = await client.PostAsJsonAsync("/api/projects", new { name });
+        var updated = await client.PutAsJsonAsync($"/api/projects/{id}", new { name });
+
+        await AssertValidationErrorsAsync(created, new() { ["name"] = ["Project name must be 200 characters or fewer."] });
+        await AssertValidationErrorsAsync(updated, new() { ["name"] = ["Project name must be 200 characters or fewer."] });
+        var project = Assert.Single((await GetJsonAsync(client, "/api/projects")).AsArray())!;
+        Assert.Equal("Cave", (string?)project["name"]);
+    }
+
+    // The limit is on the name that's stored, which is trimmed.
+    [Fact]
+    public async Task Create_AcceptsA200CharacterName_WithSpacesAroundIt()
+    {
+        using var client = TestApi.SignInAsNewUser(webFactory);
+        var name = new string('a', 200);
+
+        var response = await client.PostAsJsonAsync("/api/projects", new { name = $"  {name}  " });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(name, (string?)(await response.Content.ReadFromJsonAsync<JsonNode>())!["name"]);
+    }
 
     [Fact]
     public async Task ANewProject_IsMetric()
@@ -107,4 +156,15 @@ public class ProjectsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<JsonNode>())!;
     }
+
+    private static async Task AssertValidationErrorsAsync(HttpResponseMessage response, Dictionary<string, string[]> expected)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<ValidationProblem>();
+        Assert.Equal(
+            expected.OrderBy(error => error.Key, StringComparer.Ordinal),
+            problem!.Errors.OrderBy(error => error.Key, StringComparer.Ordinal));
+    }
+
+    private sealed record ValidationProblem(string Title, Dictionary<string, string[]> Errors);
 }
