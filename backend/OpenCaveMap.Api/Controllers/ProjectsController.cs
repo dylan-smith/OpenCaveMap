@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OpenCaveMap.Api.Contracts;
 using OpenCaveMap.Api.Data;
 using OpenCaveMap.Api.Models;
+using OpenCaveMap.Api.Projects;
 
 namespace OpenCaveMap.Api.Controllers;
 
@@ -50,15 +51,15 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
     [HttpPost]
     public async Task<ActionResult<Project>> Create([FromBody] ProjectRequest request)
     {
-        var trimmedName = request.Name.Trim();
+        var input = ProjectValidator.Validate(request, ModelState);
 
-        if (trimmedName.Length == 0)
+        if (input is null)
         {
-            ModelState.AddModelError(nameof(request.Name), "Project name is required.");
+            logger.LogWarning("Project creation failed validation");
             return ValidationProblem(ModelState);
         }
 
-        var duplicateName = await HasDuplicateNameAsync(trimmedName);
+        var duplicateName = await HasDuplicateNameAsync(input.Name);
 
         if (duplicateName)
         {
@@ -68,8 +69,8 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
 
         var project = new Project
         {
-            Name = trimmedName,
-            UnitSystem = request.UnitSystem ?? UnitSystem.Metric,
+            Name = input.Name,
+            UnitSystem = input.UnitSystem ?? UnitSystem.Metric,
         };
 
         dbContext.Projects.Add(project);
@@ -79,7 +80,7 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         }
         catch (DbUpdateException)
         {
-            var isDuplicateName = await HasDuplicateNameAsync(trimmedName);
+            var isDuplicateName = await HasDuplicateNameAsync(input.Name);
 
             if (isDuplicateName)
             {
@@ -106,15 +107,15 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
             return NotFound();
         }
 
-        var trimmedName = request.Name.Trim();
+        var input = ProjectValidator.Validate(request, ModelState);
 
-        if (trimmedName.Length == 0)
+        if (input is null)
         {
-            ModelState.AddModelError(nameof(request.Name), "Project name is required.");
+            logger.LogWarning("Project {ProjectId} update failed validation", id);
             return ValidationProblem(ModelState);
         }
 
-        var duplicateName = await HasDuplicateNameAsync(trimmedName, id);
+        var duplicateName = await HasDuplicateNameAsync(input.Name, id);
 
         if (duplicateName)
         {
@@ -122,8 +123,8 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
             return Conflict(new { message = "A project with this name already exists." });
         }
 
-        project.Name = trimmedName;
-        project.UnitSystem = request.UnitSystem ?? project.UnitSystem;
+        project.Name = input.Name;
+        project.UnitSystem = input.UnitSystem ?? project.UnitSystem;
 
         try
         {
@@ -131,7 +132,7 @@ public class ProjectsController(OpenCaveMapDbContext dbContext, ILogger<Projects
         }
         catch (DbUpdateException)
         {
-            var isDuplicateName = await HasDuplicateNameAsync(trimmedName, id);
+            var isDuplicateName = await HasDuplicateNameAsync(input.Name, id);
 
             if (isDuplicateName)
             {

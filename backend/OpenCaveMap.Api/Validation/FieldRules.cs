@@ -48,6 +48,22 @@ public static class FieldRules
     }
 
     /// <summary>
+    /// The text trimmed. Null after adding a message when it's blank, or longer than <paramref name="maxLength"/> once
+    /// trimmed.
+    /// </summary>
+    public static string? RequiredText(
+        string? text, string key, string label, int maxLength, ModelStateDictionary errors)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            errors.AddModelError(key, $"{label} is required.");
+            return null;
+        }
+
+        return OptionalText(text, key, label, maxLength, errors);
+    }
+
+    /// <summary>
     /// The key of the item at <paramref name="index"/> in a list (stations[1]), which its fields' keys start with.
     /// </summary>
     public static string ItemKey(string list, int index)
