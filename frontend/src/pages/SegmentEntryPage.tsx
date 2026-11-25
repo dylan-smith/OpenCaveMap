@@ -12,7 +12,9 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { describeFetchError } from '../api/projects'
 import {
   createSegment,
+  getSegment,
   getNewSegment,
+  replaceSegment,
   segmentRejectedMessage,
   SegmentRejectedError,
 } from '../api/segments'
@@ -35,7 +37,14 @@ import {
 import type { Draft, DraftShot, DraftStation, Messages } from './segmentDraft'
 import { ShotRow, StationRow } from './SegmentRows'
 
-function SegmentEntry({ projectId }: { projectId: number }) {
+// Enters a new segment when segmentId is null, and otherwise corrects that saved segment.
+function SegmentEntry({
+  projectId,
+  segmentId,
+}: {
+  projectId: number
+  segmentId: number | null
+}) {
   const navigate = useNavigate()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [notFound, setNotFound] = useState(false)
@@ -56,7 +65,10 @@ function SegmentEntry({ projectId }: { projectId: number }) {
 
     async function load() {
       try {
-        const segment = await getNewSegment(projectId)
+        const segment =
+          segmentId === null
+            ? await getNewSegment(projectId)
+            : await getSegment(projectId, segmentId)
         if (!current) {
           return
         }
@@ -69,7 +81,9 @@ function SegmentEntry({ projectId }: { projectId: number }) {
         if (!current) {
           return
         }
-        trackException(error, { operation: 'loadNewSegment' })
+        trackException(error, {
+          operation: segmentId === null ? 'loadNewSegment' : 'loadSegment',
+        })
         setLoadError(describeFetchError(error, 'Unable to load the segment.'))
       } finally {
         if (current) {
@@ -83,11 +97,17 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     return () => {
       current = false
     }
-  }, [projectId])
+  }, [projectId, segmentId])
 
   if (notFound) {
     return (
-      <NotFoundPage message="That project doesn't exist. It may have been deleted." />
+      <NotFoundPage
+        message={
+          segmentId === null
+            ? "That project doesn't exist. It may have been deleted."
+            : "That segment doesn't exist. It may have been deleted."
+        }
+      />
     )
   }
 
@@ -182,8 +202,13 @@ function SegmentEntry({ projectId }: { projectId: number }) {
     setMessages(null)
 
     try {
-      await createSegment(projectId, toRequest(sent))
-      trackEvent('SegmentCreated')
+      if (segmentId === null) {
+        await createSegment(projectId, toRequest(sent))
+        trackEvent('SegmentCreated')
+      } else {
+        await replaceSegment(projectId, segmentId, toRequest(sent))
+        trackEvent('SegmentUpdated')
+      }
       void navigate(`/projects/${projectId}`)
     } catch (error) {
       // A rejected segment is the user's to fix, not a failure to report.
@@ -350,13 +375,26 @@ function SegmentEntry({ projectId }: { projectId: number }) {
   )
 }
 
+// At /projects/:id/segments/new for a new segment, and /projects/:id/segments/:segmentId for a saved one.
 function SegmentEntryPage() {
-  const projectId = parseId(useParams().id)
-  if (projectId === null) {
+  const params = useParams()
+  const projectId = parseId(params.id)
+  const segmentId =
+    params.segmentId === undefined ? null : parseId(params.segmentId)
+  if (
+    projectId === null ||
+    (params.segmentId !== undefined && segmentId === null)
+  ) {
     return <NotFoundPage />
   }
-  // Keyed by id so moving between two projects' entry screens starts each one with fresh state.
-  return <SegmentEntry key={projectId} projectId={projectId} />
+  // Keyed by the address so moving between two entry screens starts each one with fresh state.
+  return (
+    <SegmentEntry
+      key={`${projectId}/${segmentId ?? 'new'}`}
+      projectId={projectId}
+      segmentId={segmentId}
+    />
+  )
 }
 
 export default SegmentEntryPage

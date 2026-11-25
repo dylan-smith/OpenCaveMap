@@ -1,12 +1,15 @@
 import type { Segment, SegmentErrors, SegmentRequest } from '../api/segments'
+import { roundLength } from './readings'
 
 // What the user has typed. Readings are kept as text, and read as numbers when the segment is saved. key identifies a
 // row to React, since rows added here have no id until they're saved. shots[i] runs from stations[i] to
-// stations[i + 1].
+// stations[i + 1]. A saved row also keeps the depth or distance the API sent, which is shown rounded (see
+// lengthToSend), and a row added here has null.
 export type DraftStation = {
   key: string
   id: number | null
   depth: string
+  savedDepth: number | null
   note: string
 }
 
@@ -14,6 +17,7 @@ export type DraftShot = {
   key: string
   id: number | null
   distance: string
+  savedDistance: number | null
   azimuth: string
   note: string
 }
@@ -35,11 +39,18 @@ function nextRowKey() {
 }
 
 export function newStation(): DraftStation {
-  return { key: nextRowKey(), id: null, depth: '', note: '' }
+  return { key: nextRowKey(), id: null, depth: '', savedDepth: null, note: '' }
 }
 
 export function newShot(): DraftShot {
-  return { key: nextRowKey(), id: null, distance: '', azimuth: '', note: '' }
+  return {
+    key: nextRowKey(),
+    id: null,
+    distance: '',
+    savedDistance: null,
+    azimuth: '',
+    note: '',
+  }
 }
 
 // A reading is a plain decimal number. Spaces around it and zeros in front of it (045) are fine, and the decimal
@@ -59,8 +70,20 @@ function readNumber(text: string) {
   return plainDecimal.test(trimmed) ? Number(trimmed) : Number.NaN
 }
 
+// An azimuth is shown as it comes, and a depth or distance rounded.
 function readingText(reading: number | null) {
   return reading === null ? '' : String(reading)
+}
+
+function lengthText(length: number | null) {
+  return length === null ? '' : String(roundLength(length))
+}
+
+// A depth or distance is shown rounded, so while it still reads as the number shown, the unrounded one the API sent
+// goes back instead. Saving without changing a reading then leaves it exactly as stored.
+function lengthToSend(text: string, saved: number | null) {
+  const typed = readNumber(text)
+  return saved !== null && typed === roundLength(saved) ? saved : typed
 }
 
 export function toDraft(segment: Segment): Draft {
@@ -72,13 +95,15 @@ export function toDraft(segment: Segment): Draft {
     stations: segment.stations.map((station) => ({
       key: nextRowKey(),
       id: station.id,
-      depth: readingText(station.depth),
+      depth: lengthText(station.depth),
+      savedDepth: station.depth,
       note: station.note ?? '',
     })),
     shots: segment.shots.map((shot) => ({
       key: nextRowKey(),
       id: shot.id,
-      distance: readingText(shot.distance),
+      distance: lengthText(shot.distance),
+      savedDistance: shot.distance,
       azimuth: readingText(shot.azimuth),
       note: shot.note ?? '',
     })),
@@ -91,17 +116,19 @@ export function toRequest(draft: Draft): SegmentRequest {
     surveyDate: draft.surveyDate === '' ? null : draft.surveyDate,
     name: draft.name,
     note: draft.note,
-    stations: draft.stations.map(({ id, depth, note }) => ({
+    stations: draft.stations.map(({ id, depth, savedDepth, note }) => ({
       id,
-      depth: readNumber(depth),
+      depth: lengthToSend(depth, savedDepth),
       note,
     })),
-    shots: draft.shots.map(({ id, distance, azimuth, note }) => ({
-      id,
-      distance: readNumber(distance),
-      azimuth: readNumber(azimuth),
-      note,
-    })),
+    shots: draft.shots.map(
+      ({ id, distance, savedDistance, azimuth, note }) => ({
+        id,
+        distance: lengthToSend(distance, savedDistance),
+        azimuth: readNumber(azimuth),
+        note,
+      }),
+    ),
   }
 }
 

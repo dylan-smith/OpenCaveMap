@@ -5,6 +5,7 @@ import Button from '@mui/material/Button'
 import CircularProgress from '@mui/material/CircularProgress'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
+import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
@@ -89,16 +90,23 @@ function ProjectSegments({ projectId }: { projectId: number }) {
         ) : (
           <List aria-labelledby="segments-heading">
             {segments.map((segment) => (
-              <ListItem key={segment.id} divider>
-                <ListItemText
-                  primary={
-                    segment.name === null
-                      ? `Segment ${segment.number}`
-                      : `Segment ${segment.number} · ${segment.name}`
-                  }
-                  secondary={`${segment.surveyDate} · ${segment.stationCount} stations · ${roundLength(segment.totalLength)} m`}
-                  slotProps={{ primary: { sx: { overflowWrap: 'anywhere' } } }}
-                />
+              <ListItem key={segment.id} divider disablePadding>
+                <ListItemButton
+                  component={Link}
+                  to={`/projects/${projectId}/segments/${segment.id}`}
+                >
+                  <ListItemText
+                    primary={
+                      segment.name === null
+                        ? `Segment ${segment.number}`
+                        : `Segment ${segment.number} · ${segment.name}`
+                    }
+                    secondary={`${segment.surveyDate} · ${segment.stationCount} stations · ${roundLength(segment.totalLength)} m`}
+                    slotProps={{
+                      primary: { sx: { overflowWrap: 'anywhere' } },
+                    }}
+                  />
+                </ListItemButton>
               </ListItem>
             ))}
           </List>

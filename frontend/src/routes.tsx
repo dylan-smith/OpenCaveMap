@@ -18,6 +18,10 @@ export const routes = [
       { index: true, element: <ProjectsPage /> },
       { path: 'projects/:id', element: <ProjectDetailPage /> },
       { path: 'projects/:id/segments/new', element: <SegmentEntryPage /> },
+      {
+        path: 'projects/:id/segments/:segmentId',
+        element: <SegmentEntryPage />,
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
