@@ -97,6 +97,34 @@ test.describe('Accessibility', () => {
     }
   })
 
+  test('segment entry screen showing validation messages has no detectable accessibility violations', async ({
+    page,
+    request,
+  }) => {
+    const response = await request.post(projectsApiUrl, {
+      data: { name: `A11y messages project ${Date.now()}` },
+    })
+    expect(response.ok()).toBe(true)
+    const { id } = (await response.json()) as { id: number }
+
+    try {
+      await page.goto(`/projects/${id}/segments/new`)
+      await expect(
+        page.getByRole('heading', { name: 'Segment 1', exact: true }),
+      ).toBeVisible()
+      await page.getByRole('button', { name: 'Save segment' }).click()
+      await expect(page.getByLabel('Station 1.0 depth (m)')).toHaveAttribute(
+        'aria-invalid',
+        'true',
+      )
+      const results = await new AxeBuilder({ page }).analyze()
+
+      expect(results.violations).toEqual([])
+    } finally {
+      await request.delete(`${projectsApiUrl}/${id}`)
+    }
+  })
+
   test('not found page has no detectable accessibility violations', async ({
     page,
   }) => {
