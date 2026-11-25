@@ -42,6 +42,61 @@ test.describe('Accessibility', () => {
     }
   })
 
+  test('project page with a segment has no detectable accessibility violations', async ({
+    page,
+    request,
+  }) => {
+    const response = await request.post(projectsApiUrl, {
+      data: { name: `A11y segments project ${Date.now()}` },
+    })
+    expect(response.ok()).toBe(true)
+    const { id, name } = (await response.json()) as { id: number; name: string }
+
+    try {
+      const segment = await request.post(`${projectsApiUrl}/${id}/segments`, {
+        data: {
+          surveyDate: '2026-11-21',
+          name: 'Main line',
+          stations: [{ depth: 3 }, { depth: 7 }],
+          shots: [{ distance: 12.5, azimuth: 45 }],
+        },
+      })
+      expect(segment.ok()).toBe(true)
+
+      await page.goto(`/projects/${id}`)
+      await expect(page.getByRole('heading', { name })).toBeVisible()
+      await expect(page.getByText('Segment 1 · Main line')).toBeVisible()
+      const results = await new AxeBuilder({ page }).analyze()
+
+      expect(results.violations).toEqual([])
+    } finally {
+      await request.delete(`${projectsApiUrl}/${id}`)
+    }
+  })
+
+  test('segment entry screen has no detectable accessibility violations', async ({
+    page,
+    request,
+  }) => {
+    const response = await request.post(projectsApiUrl, {
+      data: { name: `A11y entry project ${Date.now()}` },
+    })
+    expect(response.ok()).toBe(true)
+    const { id } = (await response.json()) as { id: number }
+
+    try {
+      await page.goto(`/projects/${id}/segments/new`)
+      await expect(
+        page.getByRole('heading', { name: 'Segment 1', exact: true }),
+      ).toBeVisible()
+      const results = await new AxeBuilder({ page }).analyze()
+
+      expect(results.violations).toEqual([])
+    } finally {
+      await request.delete(`${projectsApiUrl}/${id}`)
+    }
+  })
+
   test('not found page has no detectable accessibility violations', async ({
     page,
   }) => {

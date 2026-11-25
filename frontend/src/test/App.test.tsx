@@ -4,6 +4,12 @@ import { useBlocker } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSession } from '../auth/session'
 import { trackEvent, trackException, trackPageView } from '../telemetry'
+import {
+  jsonResponse,
+  mockFetch as mockAnyFetch,
+  unreachable,
+  unreachableMessage,
+} from './mockFetch'
 import { renderAt } from './renderAt'
 
 vi.mock('../telemetry', () => ({
@@ -12,30 +18,16 @@ vi.mock('../telemetry', () => ({
   trackPageView: vi.fn(),
 }))
 
-const unreachableMessage =
-  "Can't reach OpenCaveMap right now. It may be updating, so try again in a minute."
-
+// The project page also lists the project's segments, which segments.test.tsx covers, so these tests answer that
+// request with an empty list and leave every other request to the handler.
 function mockFetch(
   handler: (url: string, init?: RequestInit) => Promise<Response>,
 ) {
-  return vi
-    .spyOn(globalThis, 'fetch')
-    .mockImplementation((input: string | URL | Request, init?: RequestInit) => {
-      const url = input instanceof Request ? input.url : input.toString()
-      return handler(url, init)
-    })
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-// fetch rejects like this when the API can't be reached at all.
-function unreachable(): Promise<Response> {
-  throw new TypeError('Failed to fetch')
+  return mockAnyFetch((url, init) =>
+    /\/segments$/.test(url)
+      ? Promise.resolve(jsonResponse([]))
+      : handler(url, init),
+  )
 }
 
 async function waitForLoaded() {
