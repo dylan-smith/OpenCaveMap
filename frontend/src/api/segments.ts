@@ -1,8 +1,9 @@
 import { apiBaseUrl } from '../config'
 import { apiFetch } from './client'
 import { ApiError } from './projects'
+import type { UnitSystem } from './projects'
 
-// A row in a project's list of segments. totalLength is in metres, unrounded.
+// A row in a project's list of segments. totalLength is in unitSystem, the project's, unrounded.
 export type SegmentSummary = {
   id: number
   number: number
@@ -10,17 +11,19 @@ export type SegmentSummary = {
   surveyDate: string
   stationCount: number
   totalLength: number
+  unitSystem: UnitSystem
 }
 
 // A segment as the entry screen shows it: a saved one, or a blank new one without ids or readings. Stations and
-// shots are in order along the line. Depths and distances are in metres and azimuths in degrees, all unrounded, and
-// the survey date is YYYY-MM-DD.
+// shots are in order along the line. Depths and distances are in unitSystem and azimuths in degrees, all unrounded,
+// and the survey date is YYYY-MM-DD.
 export type Segment = {
   id: number | null
   number: number
   surveyDate: string | null
   name: string | null
   note: string | null
+  unitSystem: UnitSystem
   stations: Station[]
   shots: Shot[]
 }
@@ -39,11 +42,13 @@ export type Shot = {
 }
 
 // What the user entered. A reading is a number, or null when none was entered, and the survey date is YYYY-MM-DD, or
-// null. The API trims the name and notes, and validates everything.
+// null. The API trims the name and notes, validates everything, and converts the depths and distances from unitSystem,
+// which is the one the segment was shown in.
 export type SegmentRequest = {
   surveyDate: string | null
   name: string
   note: string
+  unitSystem: UnitSystem
   stations: { id: number | null; depth: number | null; note: string }[]
   shots: {
     id: number | null

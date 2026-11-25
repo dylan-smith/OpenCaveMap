@@ -867,27 +867,24 @@ public class SegmentsApiTests(WebApplicationFactory<Program> factory)
         Assert.Equal([9.144m, 3.048m], Distances(await GetJsonAsync(client, url)));
     }
 
-    // The entry screen doesn't name a unit system yet, and what it sends is in metres.
     [Fact]
-    public async Task CreateAndReplace_ReadARequestThatNamesNoUnitSystemAsMetres()
+    public async Task CreateAndReplace_RejectAMissingUnitSystem()
     {
         using var client = TestApi.SignInAsNewUser(webFactory);
         var projectId = await CreateProjectAsync(client);
-        await SetUnitSystemAsync(client, projectId, "imperial");
-        var body = ValidSegmentBody();
-        body.Remove("unitSystem");
-        body["shots"]![0]!["distance"] = 9.144;
+        var segment = await CreateSegmentAsync(client, projectId, "2026-11-21");
+        var url = $"/api/projects/{projectId}/segments/{segment["id"]}";
+        var createBody = ValidSegmentBody();
+        createBody["unitSystem"] = null;
+        var replaceBody = segment.DeepClone();
+        replaceBody["unitSystem"] = null;
 
-        var response = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", body);
+        var created = await client.PostAsJsonAsync($"/api/projects/{projectId}/segments", createBody);
+        var replaced = await client.PutAsJsonAsync(url, replaceBody);
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        var created = (await response.Content.ReadFromJsonAsync<JsonNode>())!;
-        body["shots"]![0]!["distance"] = 3.048;
-        var replaced = await PutJsonAsync(client, $"/api/projects/{projectId}/segments/{created["id"]}", body);
-
-        // 9.144 metres is 30 feet, and 3.048 metres is 10.
-        Assert.Equal([30m], Distances(created));
-        Assert.Equal([10m], Distances(replaced));
+        await AssertValidationErrorsAsync(created, new() { ["unitSystem"] = ["Unit system is required."] });
+        await AssertValidationErrorsAsync(replaced, new() { ["unitSystem"] = ["Unit system is required."] });
+        Assert.Single((await GetJsonAsync(client, $"/api/projects/{projectId}/segments")).AsArray());
     }
 
     // A unit system is sent by its name, exactly as responses write it.

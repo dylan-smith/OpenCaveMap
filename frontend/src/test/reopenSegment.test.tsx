@@ -116,6 +116,7 @@ describe('reopening a saved segment', () => {
       surveyDate: '2026-01-05',
       name: 'Upstream',
       note: 'Silty',
+      unitSystem: 'metric',
       stations: [
         { id: 101, depth: 3, note: '' },
         { id: 102, depth: 12.345, note: '' },

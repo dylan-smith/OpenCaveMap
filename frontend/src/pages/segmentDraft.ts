@@ -1,3 +1,4 @@
+import type { UnitSystem } from '../api/projects'
 import type { Segment, SegmentErrors, SegmentRequest } from '../api/segments'
 import { roundLength } from './readings'
 
@@ -25,8 +26,11 @@ export type DraftShot = {
   review: boolean
 }
 
+// unitSystem is the one the API sent the readings in. It goes back with them unchanged, so the API converts what was
+// typed from the units the screen showed, even if the project's setting has changed since.
 export type Draft = {
   number: number
+  unitSystem: UnitSystem
   surveyDate: string
   name: string
   note: string
@@ -79,34 +83,41 @@ function readingText(reading: number | null) {
   return reading === null ? '' : String(reading)
 }
 
-function lengthText(length: number | null) {
-  return length === null ? '' : String(roundLength(length))
+function lengthText(length: number | null, unitSystem: UnitSystem) {
+  return length === null ? '' : String(roundLength(length, unitSystem))
 }
 
 // A depth or distance is shown rounded, so while it still reads as the number shown, the unrounded one the API sent
 // goes back instead. Saving without changing a reading then leaves it exactly as stored.
-function lengthToSend(text: string, saved: number | null) {
+function lengthToSend(
+  text: string,
+  saved: number | null,
+  unitSystem: UnitSystem,
+) {
   const typed = readNumber(text)
-  return saved !== null && typed === roundLength(saved) ? saved : typed
+  return saved !== null && typed === roundLength(saved, unitSystem)
+    ? saved
+    : typed
 }
 
 export function toDraft(segment: Segment): Draft {
   return {
     number: segment.number,
+    unitSystem: segment.unitSystem,
     surveyDate: segment.surveyDate ?? '',
     name: segment.name ?? '',
     note: segment.note ?? '',
     stations: segment.stations.map((station) => ({
       key: nextRowKey(),
       id: station.id,
-      depth: lengthText(station.depth),
+      depth: lengthText(station.depth, segment.unitSystem),
       savedDepth: station.depth,
       note: station.note ?? '',
     })),
     shots: segment.shots.map((shot) => ({
       key: nextRowKey(),
       id: shot.id,
-      distance: lengthText(shot.distance),
+      distance: lengthText(shot.distance, segment.unitSystem),
       savedDistance: shot.distance,
       azimuth: readingText(shot.azimuth),
       note: shot.note ?? '',
@@ -162,15 +173,16 @@ export function toRequest(draft: Draft): SegmentRequest {
     surveyDate: draft.surveyDate === '' ? null : draft.surveyDate,
     name: draft.name,
     note: draft.note,
+    unitSystem: draft.unitSystem,
     stations: draft.stations.map(({ id, depth, savedDepth, note }) => ({
       id,
-      depth: lengthToSend(depth, savedDepth),
+      depth: lengthToSend(depth, savedDepth, draft.unitSystem),
       note,
     })),
     shots: draft.shots.map(
       ({ id, distance, savedDistance, azimuth, note }) => ({
         id,
-        distance: lengthToSend(distance, savedDistance),
+        distance: lengthToSend(distance, savedDistance, draft.unitSystem),
         azimuth: readNumber(azimuth),
         note,
       }),

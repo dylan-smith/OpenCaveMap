@@ -9,7 +9,7 @@ import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { Link, useNavigate, useParams } from 'react-router'
-import { describeFetchError } from '../api/projects'
+import { describeFetchError, lengthUnit } from '../api/projects'
 import {
   createSegment,
   deleteSegment,
@@ -365,6 +365,7 @@ function SegmentEntry({
                     <Box key={station.key}>
                       <StationRow
                         label={stationLabel(draft, index)}
+                        unit={lengthUnit(draft.unitSystem)}
                         station={station}
                         canRemove={draft.stations.length > 2}
                         onInsertAfter={() => insertAfter(station.key)}
@@ -391,6 +392,7 @@ function SegmentEntry({
                       {shot && (
                         <ShotRow
                           label={shotLabel(draft, index)}
+                          unit={lengthUnit(draft.unitSystem)}
                           shot={shot}
                           message={(field) =>
                             message(rowField(shot.key, field))

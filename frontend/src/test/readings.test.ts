@@ -15,7 +15,22 @@ describe('roundLength', () => {
     [0, 0],
     [99999.995, 100000],
     [-1.005, -1.01],
-  ])('rounds %d to %d', (value, rounded) => {
-    expect(roundLength(value)).toBe(rounded)
+  ])('rounds %d metres to %d', (value, rounded) => {
+    expect(roundLength(value, 'metric')).toBe(rounded)
+  })
+
+  it.each([
+    [30, 30],
+    [30.25, 30.3],
+    [30.24, 30.2],
+    [1.01, 1],
+    // 0.04572 metres, exactly.
+    [0.15, 0.2],
+    // 9.14 metres, as near as a number in the browser gets.
+    [29.986876640419947, 30],
+    // 12.3 metres.
+    [40.35433070866142, 40.4],
+  ])('rounds %d feet to %d', (value, rounded) => {
+    expect(roundLength(value, 'imperial')).toBe(rounded)
   })
 })
